@@ -8,7 +8,7 @@ mkdirSync(resolve(root, "..", "..", "outputs"), { recursive: true });
 
 const mock = String.raw`<script>
 (() => {
-  const KEY='frota-facil-pro-demo-v2';
+  const KEY='frota-facil-pro-demo-v3';
   const fresh=()=>({organization:{id:'pilot',name:'Cliente piloto',legal_name:'',document:'',state_registration:'',phone:'',whatsapp:'',email:'',zip_code:'',street:'',address_number:'',complement:'',district:'',city:'',state:'',primary_color:'#0c2f47',email_batch_size:20,email_interval_seconds:30,whatsapp_batch_size:20,whatsapp_interval_seconds:30,status:'Ativa',plan:'Demonstração offline'},trucks:[
     {id:'truck-kpe3j85',plate:'KPE3J85',name:'Caminhão KPE',status:'Ativo',current_km:0,brand:'',model:'',year:null,body_type:'Frigorífico'},
     {id:'truck-llf9969',plate:'LLF9969',name:'Caminhão LLF',status:'Ativo',current_km:0,brand:'',model:'',year:null,body_type:'Frigorífico'},
