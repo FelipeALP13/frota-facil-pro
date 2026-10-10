@@ -82,5 +82,5 @@ assert.equal(data.communications.length, 2);
 assert.equal(data.integrations.email, false);
 assert.equal(data.integrations.whatsapp, false);
 const ui = readFileSync(resolve(root, "worker", "ui.js"), "utf8");
-for (const feature of ["Rastreamento", "Jornada", "Pneus", "Multas", "Estoque", "companyLogo", "dashboardCharts", "km/L"]) assert.ok(ui.includes(feature), `A interface deve incluir ${feature}.`);
+for (const feature of ["Rastreamento", "Jornada", "Pneus", "Multas", "Estoque", "companyLogo", "dashboardCharts", "km/L", "Canhoto de entrega", "Foto do cupom fiscal", "Foto da avaria"]) assert.ok(ui.includes(feature), `A interface deve incluir ${feature}.`);
 console.log("Smoke test aprovado: painel, cartões completos, identidade visual, financeiro, automação e módulos avançados.");
