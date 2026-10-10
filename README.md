@@ -12,6 +12,9 @@ Sistema web responsivo para gestão de pequenas frotas. O piloto começa com tr�
 - Máscaras e validações para CPF, CNPJ numérico/alfanumérico, telefone, CEP, placa, CNH e RENAVAM.
 - Regras automáticas para vencimentos de documentos, CNH, manutenção e contas.
 - Integração preparada para WhatsApp Cloud API e e-mail transacional.
+- Identidade visual da empresa com logo, tema claro e cartões de detalhes completos.
+- Indicadores visuais e consumo em km/L calculado entre abastecimentos completos.
+- Estrutura de produto para telemetria, jornada, ajudantes, pneus, multas e estoque.
 - Auditoria das operações e banco preparado para separar organizações.
 
 ## Arquitetura
@@ -32,7 +35,7 @@ node scripts/smoke-test.mjs
 node scripts/build-offline-demo.mjs
 ```
 
-O teste de fumaça cria o banco em memória, aplica todas as migrações e valida cadastro, edição, empresa, financeiro e automações sem duplicidade.
+O teste de fumaça cria o banco em memória, aplica todas as migrações e valida cadastro, edição, identidade visual, financeiro, automações sem duplicidade e presença dos módulos avançados.
 
 ## Variáveis das integrações
 
