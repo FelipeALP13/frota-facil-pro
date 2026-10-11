@@ -8,11 +8,14 @@ Sistema web responsivo para gestão de pequenas frotas. O piloto começa com tr�
 - Viagens, checklists, ocorrências e documentos.
 - Abastecimento, manutenção preventiva e despesas.
 - Financeiro com plano de contas, centros de custo, formas de pagamento e valor líquido.
+- Livro-caixa integrado: viagens, despesas, abastecimentos, manutenções, documentos e multas geram lançamentos vinculados automaticamente.
+- Contas a pagar, contas a receber, baixa, fluxo de caixa realizado/projetado e relatórios exportáveis em CSV.
 - Campos monetários identificados em reais e preparados para entrada decimal no celular.
 - Máscaras e validações para CPF, CNPJ numérico/alfanumérico, telefone, CEP, placa, CNH e RENAVAM.
 - Regras automáticas para vencimentos de documentos, CNH, manutenção e contas.
 - Integração preparada para WhatsApp Cloud API e e-mail transacional.
-- Identidade visual da empresa com logo, tema claro e cartões de detalhes completos.
+- Identidade visual da empresa com logo, tema personalizado e cartões de detalhes completos.
+- Personalização de cores, menu lateral, cartões, tema claro/escuro, arredondamento e modo compacto.
 - Indicadores visuais e consumo em km/L calculado entre abastecimentos completos.
 - Cadastros completos para telemetria manual, jornada, ajudantes, pneus, multas e estoque.
 - Upload de imagens de até 12 MB com redimensionamento automático no navegador.
