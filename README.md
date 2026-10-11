@@ -8,7 +8,8 @@ Sistema web responsivo para gestão de pequenas frotas. O piloto começa com tr�
 - Viagens, checklists, ocorrências e documentos.
 - Abastecimento, manutenção preventiva e despesas.
 - Financeiro com plano de contas, centros de custo, formas de pagamento e valor líquido.
-- Livro-caixa integrado: viagens, despesas, abastecimentos, manutenções, documentos e multas geram lançamentos vinculados automaticamente.
+- Livro-caixa integrado: o frete da viagem gera receita; diesel, saída, motorista e ajudante geram despesas separadas. Abastecimentos, manutenções, documentos e multas também geram lançamentos vinculados.
+- Receita e despesas da viagem possuem vencimento, baixa e forma de pagamento independentes.
 - Contas a pagar, contas a receber, baixa, fluxo de caixa realizado/projetado e relatórios exportáveis em CSV.
 - Campos monetários identificados em reais e preparados para entrada decimal no celular.
 - Máscaras e validações para CPF, CNPJ numérico/alfanumérico, telefone, CEP, placa, CNH e RENAVAM.
