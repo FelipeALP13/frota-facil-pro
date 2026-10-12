@@ -19,7 +19,7 @@ Sistema web responsivo para gestão de pequenas frotas. O piloto começa com tr�
 - Personalização de cores, menu lateral, cartões, tema claro/escuro, arredondamento e modo compacto.
 - Indicadores visuais e consumo em km/L calculado entre abastecimentos completos.
 - Cadastros completos para telemetria manual, jornada, ajudantes, pneus, multas e estoque.
-- Upload de imagens de até 12 MB com redimensionamento automático no navegador.
+- Upload persistente de canhotos, comprovantes e fotos de checklist, com imagens de até 12 MB e redimensionamento automático no navegador.
 - Auditoria das operações e banco preparado para separar organizações.
 
 ## Arquitetura
@@ -52,4 +52,4 @@ Para e-mail são usados `RESEND_API_KEY` e `EMAIL_FROM`.
 
 ## Antes de vender
 
-A versão piloto ainda precisa de autenticação por usuário, isolamento real entre empresas, papéis e permissões, anexos, exportações, backup/restauração testados, monitoramento e documentação de privacidade/LGPD. Consulte `PLANO-COMERCIAL-FROTA-FACIL.md`.
+A versão piloto ainda precisa de autenticação por usuário, isolamento real entre empresas, papéis e permissões, armazenamento de anexos em R2, backup/restauração testados, monitoramento e documentação de privacidade/LGPD. Consulte `PLANO-COMERCIAL-FROTA-FACIL.md`.

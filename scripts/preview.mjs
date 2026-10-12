@@ -10,8 +10,24 @@ mkdirSync(dirname(databasePath), { recursive: true });
 
 const sqlite = new DatabaseSync(databasePath);
 sqlite.exec("PRAGMA foreign_keys = ON");
+sqlite.exec("CREATE TABLE IF NOT EXISTS local_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)");
 for (const migration of readdirSync(resolve(root, "drizzle")).filter((name) => name.endsWith(".sql")).sort()) {
-  sqlite.exec(readFileSync(resolve(root, "drizzle", migration), "utf8"));
+  const applied = sqlite.prepare("SELECT 1 FROM local_migrations WHERE name = ?").get(migration);
+  if (applied) continue;
+  const statements = readFileSync(resolve(root, "drizzle", migration), "utf8")
+    .replaceAll("--> statement-breakpoint", "")
+    .split(";")
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+  for (const statement of statements) {
+    try {
+      sqlite.exec(statement);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/already exists|duplicate column name/i.test(message)) throw error;
+    }
+  }
+  sqlite.prepare("INSERT INTO local_migrations (name) VALUES (?)").run(migration);
 }
 
 class Statement {

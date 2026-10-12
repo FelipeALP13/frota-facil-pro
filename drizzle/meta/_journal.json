@@ -50,6 +50,13 @@
       "when": 1791670800000,
       "tag": "0006_fluxo_caixa_tema",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1791763200000,
+      "tag": "0007_anexos_e_ajudante",
+      "breakpoints": true
     }
   ]
 }
