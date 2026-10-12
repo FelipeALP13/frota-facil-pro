@@ -122,6 +122,7 @@ assert.equal(data.integrations.email, false);
 assert.equal(data.integrations.whatsapp, false);
 const ui = readFileSync(resolve(root, "worker", "ui.js"), "utf8");
 for (const feature of ["Rastreamento", "Jornada", "Pneus", "Multas", "Estoque", "companyLogo", "dashboardCharts", "km/L", "Canhoto de entrega", "Foto do cupom fiscal", "Foto da avaria", "prepareUpload", "configurável", "Fluxo de caixa", "downloadCsv", "applyTheme", "Impacto financeiro automático", "Receita do frete", "Despesas da viagem", "incomeStatus", "expenseStatus"]) assert.ok(ui.includes(feature), `A interface deve incluir ${feature}.`);
+for (const standard of ["screen-stack", "Padrão visual único para todas as telas", "panel-head", "table-wrap"]) assert.ok(ui.includes(standard), `A interface padronizada deve incluir ${standard}.`);
 const deleteExpense = await app.fetch(new Request(`https://teste.local/api/data?type=expense&id=${expenseId}`, { method: "DELETE", headers: { "oai-authenticated-user-email": "teste@local" } }), { DB });
 assert.equal(deleteExpense.status, 200);
 data = await (await call("GET")).json();
