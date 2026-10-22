@@ -11,6 +11,6 @@ mkdirSync(resolve(dist, "drizzle", "meta"), { recursive: true });
 cpSync(resolve(root, "worker/index.js"), resolve(dist, "server/index.js"));
 cpSync(resolve(root, "worker/ui.js"), resolve(dist, "server/ui.js"));
 cpSync(resolve(root, ".openai/hosting.json"), resolve(dist, ".openai/hosting.json"));
-for (const name of ["0000_frota_inicial.sql", "0001_base_comercial.sql", "0002_automacoes.sql", "0003_empresa_financeiro.sql", "0004_identidade_visual.sql", "0005_operacao_avancada.sql", "0006_fluxo_caixa_tema.sql", "0007_anexos_e_ajudante.sql"]) cpSync(resolve(root, "drizzle", name), resolve(dist, "drizzle", name));
+for (const name of ["0000_frota_inicial.sql", "0001_base_comercial.sql", "0002_automacoes.sql", "0003_empresa_financeiro.sql", "0004_identidade_visual.sql", "0005_operacao_avancada.sql", "0006_fluxo_caixa_tema.sql", "0007_anexos_e_ajudante.sql", "0008_operacao_essencial.sql"]) cpSync(resolve(root, "drizzle", name), resolve(dist, "drizzle", name));
 cpSync(resolve(root, "drizzle/meta/_journal.json"), resolve(dist, "drizzle/meta/_journal.json"));
 console.log(`Built ${dist}`);
