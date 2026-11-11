@@ -1,35 +1,26 @@
-# Frota Fácil Pro
+# Frota (versão simples)
 
-Sistema web responsivo para gestão de pequenas frotas. O piloto começa com três caminhões e os novos lançamentos zerados.
+Sistema para controlar 3 caminhões e o financeiro pessoal, no mesmo formato das planilhas que já eram usadas. Funciona no celular e no computador.
 
-## Módulos
+## Telas
 
-- Empresa, veículos, motoristas e clientes.
-- Viagens, checklists, ocorrências e documentos.
-- Abastecimento, manutenção preventiva e despesas.
-- Financeiro com plano de contas, centros de custo, formas de pagamento e valor líquido.
-- Livro-caixa integrado: o frete da viagem gera receita; diesel, saída, motorista e ajudante geram despesas separadas. Abastecimentos, manutenções, documentos e multas também geram lançamentos vinculados.
-- Receita e despesas da viagem possuem vencimento, baixa e forma de pagamento independentes.
-- Contas a pagar, contas a receber, baixa, fluxo de caixa realizado/projetado e relatórios exportáveis em CSV.
-- Campos monetários identificados em reais e preparados para entrada decimal no celular.
-- Máscaras e validações para CPF, CNPJ numérico/alfanumérico, telefone, CEP, placa, CNH e RENAVAM.
-- Regras automáticas para vencimentos de documentos, CNH, manutenção e contas.
-- Integração preparada para WhatsApp Cloud API e e-mail transacional.
-- Identidade visual da empresa com logo, tema personalizado e cartões de detalhes completos.
-- Personalização de cores, menu lateral, cartões, tema claro/escuro, arredondamento e modo compacto.
-- Indicadores visuais e consumo em km/L calculado entre abastecimentos completos.
-- Cadastros completos para telemetria manual, jornada, ajudantes, pneus, multas e estoque.
-- Upload persistente de canhotos, comprovantes e fotos de checklist, com imagens de até 12 MB e redimensionamento automático no navegador.
-- Auditoria das operações e banco preparado para separar organizações.
+- **Caminhões**: escolha o caminhão e o mês. Os lançamentos aparecem separados em **01 a 15** e **16 a 31**, com as mesmas colunas da planilha: data, região, KM inicial, KM final, KM excedente, valor saída, diesel, valor frete, motorista, ajudante e obs.
+  - O KM excedente é calculado sozinho: KM rodado menos a franquia do caminhão (130 km por padrão). Marcando **Pernoite**, aparece "PERNOITE".
+  - Um lançamento novo já vem com o último KM do caminhão, o último valor de saída e as diárias do motorista e do ajudante.
+  - Em **Editar caminhão** dá para mudar placa, nomes do motorista e do ajudante (aparecem nas colunas), diárias e franquia de KM.
+- **Financeiro**: igual à planilha de controle financeiro. Entradas por quinzena, despesas de 01 a 15 e de 16 a 31, totais, saldo de cada quinzena, saldo do mês e acumulado do ano.
+  - No computador mostra o ano inteiro; no celular mostra um mês por vez.
+  - Clique no nome de uma linha para renomear, excluir ou **repetir o valor até dezembro** (contas fixas).
+  - Abaixo de cada receita aparece, como referência, o total de frete dos caminhões naquela quinzena.
+  - Ao abrir um ano novo, as linhas do ano anterior são copiadas (sem valores).
+- **Resumo**: frete, diesel, motoristas/ajudantes e sobra dos caminhões por mês, e o financeiro por mês com acumulado.
 
 ## Arquitetura
 
-- Worker JavaScript em `worker/index.js`.
-- Interface responsiva sem dependências externas em `worker/ui.js`.
-- Banco Cloudflare D1 com migrações SQL em `drizzle/`.
-- Demonstração offline gerada por `scripts/build-offline-demo.mjs`.
+- Worker JavaScript em `worker/index.js` (API) e `worker/ui.js` (tela, sem dependências).
+- Banco Cloudflare D1. A versão simples usa as tabelas criadas em `drizzle/0009_versao_simples.sql` (`cam_caminhoes`, `cam_lancamentos`, `fin_linhas`, `fin_valores`). As tabelas da versão anterior continuam no banco, sem uso.
 
-## Testes
+## Teste
 
 Com Node.js 22 ou superior:
 
@@ -37,19 +28,4 @@ Com Node.js 22 ou superior:
 node scripts/build.mjs
 node scripts/validate-artifact.mjs
 node scripts/smoke-test.mjs
-node scripts/build-offline-demo.mjs
 ```
-
-O teste de fumaça cria o banco em memória, aplica todas as migrações e valida cadastro, edição, identidade visual, financeiro, automações sem duplicidade e CRUD dos módulos avançados.
-
-## Variáveis das integrações
-
-Copie os nomes de `.env.example` para o ambiente protegido da hospedagem. Tokens e senhas nunca devem entrar no código ou no arquivo HTML.
-
-Para WhatsApp são usados `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_TEMPLATE_NAME`, `WHATSAPP_TEMPLATE_LANGUAGE` e `WHATSAPP_WEBHOOK_VERIFY_TOKEN`. O webhook é `/api/whatsapp/webhook`.
-
-Para e-mail são usados `RESEND_API_KEY` e `EMAIL_FROM`.
-
-## Antes de vender
-
-A versão piloto ainda precisa de autenticação por usuário, isolamento real entre empresas, papéis e permissões, armazenamento de anexos em R2, backup/restauração testados, monitoramento e documentação de privacidade/LGPD. Consulte `PLANO-COMERCIAL-FROTA-FACIL.md`.

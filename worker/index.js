@@ -1,232 +1,235 @@
 import { page } from "./ui.js";
 
-const ORG = "pilot";
+// Versão simples: caminhões (lançamentos por quinzena) + planilha financeira mensal.
+
+const GRUPOS = ["rec1", "rec2", "desp1", "desp2"];
 
 function json(data, status = 200) {
-  return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
-}
-function textValue(payload, key, required = false) { const result=String(payload[key]??"").trim(); if(required&&!result) throw new Error("Preencha todos os campos obrigatórios."); return result; }
-function numberValue(payload, key) { const result=Number(payload[key]??0); if(!Number.isFinite(result)||result<0) throw new Error("Digite somente números válidos."); return result; }
-function positiveNumber(payload,key,label){const result=numberValue(payload,key);if(result<=0)throw new Error(`Informe ${label} maior que zero.`);return result}
-function optionalNumber(payload,key){const v=payload[key];return v===""||v===null||v===undefined?null:numberValue(payload,key)}
-function rangedNumber(payload,key,min,max){const value=Number(payload[key]);if(!Number.isFinite(value)||value<min||value>max)throw new Error(`O campo ${key} deve estar entre ${min} e ${max}.`);return value}
-function optionalSignedNumber(payload,key){const value=payload[key];if(value===""||value===null||value===undefined)return null;const result=Number(value);if(!Number.isFinite(result))throw new Error("Digite somente números válidos.");return result}
-function emailValue(payload,key){const value=textValue(payload,key);if(value&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))throw new Error("Informe um e-mail válido.");return value}
-function digits(value){return String(value??"").replace(/\D/g,"")}
-function taxRaw(value){return String(value??"").toUpperCase().replace(/[^A-Z0-9]/g,"")}
-function validCpf(value){const d=digits(value);if(d.length!==11||/^(\d)\1{10}$/.test(d))return false;const digit=size=>{let sum=0;for(let i=0;i<size;i++)sum+=Number(d[i])*(size+1-i);const rest=(sum*10)%11;return rest===10?0:rest};return digit(9)===Number(d[9])&&digit(10)===Number(d[10])}
-function validCnpj(value){const d=taxRaw(value);if(!/^[A-Z0-9]{12}\d{2}$/.test(d)||/^(\d)\1{13}$/.test(d))return false;const calculate=(base,weights)=>{const sum=[...base].reduce((total,char,index)=>total+(char.charCodeAt(0)-48)*weights[index],0),rest=sum%11;return rest<2?0:11-rest};const first=calculate(d.slice(0,12),[5,4,3,2,9,8,7,6,5,4,3,2]),second=calculate(d.slice(0,12)+first,[6,5,4,3,2,9,8,7,6,5,4,3,2]);return first===Number(d[12])&&second===Number(d[13])}
-function formatCpf(value){const d=digits(value);return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`}
-function formatCnpj(value){const d=taxRaw(value);return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`}
-function taxIdValue(payload,key,kind="either"){const value=textValue(payload,key);if(!value)return "";const raw=taxRaw(value);if((kind==="cpf"||kind==="either")&&raw.length===11&&!/[A-Z]/.test(raw)&&validCpf(raw))return formatCpf(raw);if((kind==="cnpj"||kind==="either")&&validCnpj(raw))return formatCnpj(raw);throw new Error(kind==="cpf"?"Informe um CPF válido.":kind==="cnpj"?"Informe um CNPJ válido, numérico ou alfanumérico.":"Informe um CPF ou CNPJ válido.")}
-function phoneValue(payload,key){const value=textValue(payload,key);if(!value)return "";const size=digits(value).length;if(![10,11,12,13].includes(size))throw new Error("Informe telefone com DDD; para WhatsApp internacional, inclua o DDI.");return value}
-function zipValue(payload,key){const value=textValue(payload,key);if(value&&digits(value).length!==8)throw new Error("Informe um CEP com 8 dígitos.");return value}
-function plateValue(payload){const value=taxRaw(textValue(payload,"plate",true));if(!/^[A-Z]{3}\d[A-Z0-9]\d{2}$/.test(value))throw new Error("Informe uma placa brasileira válida, antiga ou Mercosul.");return value}
-function recipientValue(payload){const channel=textValue(payload,"channel",true),recipient=textValue(payload,"recipient",true);if(channel==="email"){if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient))throw new Error("Informe um e-mail válido para o destinatário.");return recipient}if(channel==="whatsapp"){if(!/^55\d{10,11}$/.test(digits(recipient)))throw new Error("Para WhatsApp, informe +55, DDD e número.");return recipient}throw new Error("Canal de comunicação inválido.")}
-function businessDate(value=new Date()){const parts=new Intl.DateTimeFormat("en-US",{timeZone:"America/Sao_Paulo",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(value),part=type=>parts.find(item=>item.type===type)?.value||"";return `${part("year")}-${part("month")}-${part("day")}`}
-function errorMessage(error){const v=error instanceof Error?error.message:"Erro inesperado.";if(v.includes("no such table")||v.includes("no such column"))return"A atualização do banco ainda não foi aplicada.";if(/UNIQUE constraint failed: trucks\.plate/i.test(v))return"Já existe um veículo com esta placa.";if(/UNIQUE constraint failed: financial_categories/i.test(v))return"Já existe uma categoria com este código.";if(/UNIQUE constraint failed: cost_centers/i.test(v))return"Já existe um centro de custo com este código.";if(/FOREIGN KEY constraint failed/i.test(v))return"Este registro está sendo usado em outro cadastro e não pode ser removido.";return v}
-function userEmail(request){return request.headers.get("oai-authenticated-user-email")||"usuario-piloto"}
-async function audit(db,request,action,entityType,entityId,details=""){await db.prepare("INSERT INTO audit_logs (id,organization_id,user_email,action,entity_type,entity_id,details) VALUES (?,?,?,?,?,?,?)").bind(crypto.randomUUID(),ORG,userEmail(request),action,entityType,entityId,details).run()}
-
-async function assessTripRelease(db,p){
-  const truckId=textValue(p,"truckId"),driverId=textValue(p,"driverId"),date=textValue(p,"date")||businessDate(),km=numberValue(p,"kmStart"),blockers=[];
-  if(!driverId)blockers.push("Motorista não informado");
-  const truck=truckId?(await db.prepare("SELECT status,tachograph_expiry FROM trucks WHERE id=? AND organization_id=? LIMIT 1").bind(truckId,ORG).all()).results[0]:null;
-  if(!truck)blockers.push("Veículo não encontrado");else{if(truck.status!=="Ativo")blockers.push("Veículo inativo");if(truck.tachograph_expiry&&truck.tachograph_expiry<date)blockers.push("Cronotacógrafo vencido")}
-  if(driverId){const driver=(await db.prepare("SELECT status,cnh_expiry FROM drivers WHERE id=? AND organization_id=? LIMIT 1").bind(driverId,ORG).all()).results[0];if(!driver)blockers.push("Motorista não encontrado");else{if(driver.status!=="Ativo")blockers.push("Motorista inativo");if(driver.cnh_expiry&&driver.cnh_expiry<date)blockers.push("CNH vencida")}}
-  const expired=(await db.prepare("SELECT description FROM documents WHERE organization_id=? AND expiry_date IS NOT NULL AND expiry_date<? AND status NOT IN ('Pago','Cancelado') AND (truck_id=? OR driver_id=?) LIMIT 5").bind(ORG,date,truckId,driverId||"").all()).results;
-  blockers.push(...expired.map(item=>`Documento vencido: ${item.description}`));
-  if(truckId){const maintenance=(await db.prepare("SELECT service FROM maintenance WHERE organization_id=? AND truck_id=? AND status<>'Cancelada' AND ((next_date IS NOT NULL AND next_date<?) OR (next_km IS NOT NULL AND next_km<=?)) LIMIT 5").bind(ORG,truckId,date,km).all()).results;blockers.push(...maintenance.map(item=>`Manutenção vencida: ${item.service}`));const inspection=(await db.prepare("SELECT status FROM inspections WHERE organization_id=? AND truck_id=? ORDER BY inspection_date DESC,created_at DESC LIMIT 1").bind(ORG,truckId).all()).results[0];if(inspection?.status==="Reprovado")blockers.push("Último checklist reprovado")}
-  const override=textValue(p,"releaseOverrideReason");return{status:blockers.length?(override?"Liberada com ressalva":"Bloqueada"):"Liberada",notes:blockers.join("; "),override};
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+  });
 }
 
-async function validatePartAvailability(db,partId,quantity,credit=0){if(!partId||quantity<=0)return;const part=(await db.prepare("SELECT quantity,name FROM parts_inventory WHERE id=? AND organization_id=? LIMIT 1").bind(partId,ORG).all()).results[0];if(!part)throw new Error("Peça de estoque não encontrada.");if(Number(part.quantity)+Number(credit)<quantity)throw new Error(`Estoque insuficiente para ${part.name}.`) }
-
-function automaticFinancialRows(type,id,p){
-  const truckId=textValue(p,"truckId")||null,clientId=textValue(p,"clientId")||null,operationDate=textValue(p,"date")||textValue(p,"expiryDate")||textValue(p,"indicationDeadline")||businessDate(),generalDue=textValue(p,"dueDate")||operationDate,incomeDue=textValue(p,"incomeDueDate")||generalDue,expenseDue=textValue(p,"expenseDueDate")||generalDue;
-  const base=(line,entryType,category,description,amount)=>({line,entryType,category,description,amount:Number(amount||0),truckId,clientId,operationDate,dueDate:entryType==="Receita"?incomeDue:expenseDue});
-  if(type==="trip")return[
-    base("freight","Receita","Fretes",`Frete: ${textValue(p,"origin")||textValue(p,"region")} → ${textValue(p,"destination")||textValue(p,"region")}`,numberValue(p,"freight")),
-    base("diesel","Despesa","Combustível","Diesel alocado à viagem",textValue(p,"fuelCostMode")==="Custo alocado"?numberValue(p,"diesel"):0),
-    base("departure","Despesa","Despesas de viagem","Valor de saída da viagem",numberValue(p,"departureValue")),
-    base("driver","Despesa","Equipe","Custo do motorista na viagem",numberValue(p,"driverCost")),
-    base("helper","Despesa","Equipe","Custo do ajudante na viagem",numberValue(p,"assistantCost")),
-  ];
-  if(type==="expense")return[base("expense","Despesa",textValue(p,"category")||"Outros",textValue(p,"description")||"Despesa operacional",numberValue(p,"amount"))];
-  if(type==="fuel")return[base("fuel","Despesa","Combustível",`Abastecimento${textValue(p,"station")?` · ${textValue(p,"station")}`:""}`,numberValue(p,"total"))];
-  if(type==="maintenance")return[base("maintenance","Despesa","Manutenção",textValue(p,"service")||"Manutenção",numberValue(p,"cost"))];
-  if(type==="document")return textValue(p,"status")==="Cancelado"?[]:[base("document","Despesa","Impostos e documentação",textValue(p,"description")||textValue(p,"documentType")||"Documento",numberValue(p,"amount"))];
-  if(type==="fine")return textValue(p,"status")==="Cancelado"?[]:[base("fine","Despesa","Multas",`Multa ${textValue(p,"infractionCode")}`,numberValue(p,"amount"))];
-  return[];
+function texto(p, chave, obrigatorio = false, rotulo = chave) {
+  const v = String(p[chave] ?? "").trim();
+  if (obrigatorio && !v) throw new Error(`Preencha o campo ${rotulo}.`);
+  return v.slice(0, 200);
 }
 
-async function automaticFinancialStatements(db,type,id,p){
-  const supported=["trip","expense","fuel","maintenance","document","fine"];
-  if(!supported.includes(type))return[];
-  const existing=(await db.prepare("SELECT * FROM financial_entries WHERE organization_id=? AND source_type=? AND source_id=?").bind(ORG,type,id).all()).results,byLine=new Map(existing.map(row=>[row.source_line,row])),rows=automaticFinancialRows(type,id,p).filter(row=>row.amount>0),kept=new Set(),statements=[];
-  for(const row of rows){
-    kept.add(row.line);const previous=byLine.get(row.line),prefix=row.entryType==="Receita"?"income":"expense",status=textValue(p,`${prefix}Status`)||textValue(p,"financialStatus")||previous?.status||"Pendente",paidDate=status==="Pago"?(textValue(p,`${prefix}PaidDate`)||textValue(p,"paidDate")||previous?.paid_date||row.operationDate):null,paidAmount=status==="Pago"?row.amount:Math.min(row.amount,Number(previous?.paid_amount||0)),paymentMethodId=textValue(p,`${prefix}PaymentMethodId`)||textValue(p,"paymentMethodId")||previous?.payment_method_id||null,costCenterId=textValue(p,"costCenterId")||previous?.cost_center_id||"cc-operacao",notes=`Gerado automaticamente a partir de ${type}.`;
-    if(previous)statements.push(db.prepare("UPDATE financial_entries SET truck_id=?,client_id=?,entry_type=?,category=?,description=?,amount=?,due_date=?,paid_date=?,status=?,notes=?,reference=?,cost_center_id=?,payment_method_id=?,original_due_date=?,original_amount=?,fees=0,interest=0,fine=0,discount=0,net_amount=?,paid_amount=?,competence_date=? WHERE id=? AND organization_id=?").bind(row.truckId,row.clientId,row.entryType,row.category,row.description,row.amount,row.dueDate,paidDate,status,notes,`AUTO-${type}-${id.slice(0,8)}`,costCenterId,paymentMethodId,row.dueDate,row.amount,row.amount,paidAmount,row.operationDate,previous.id,ORG));
-    else statements.push(db.prepare("INSERT INTO financial_entries (id,organization_id,truck_id,client_id,entry_type,category,description,amount,due_date,paid_date,status,notes,reference,cost_center_id,payment_method_id,original_due_date,original_amount,fees,interest,fine,discount,net_amount,paid_amount,competence_date,source_type,source_id,source_line) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(),ORG,row.truckId,row.clientId,row.entryType,row.category,row.description,row.amount,row.dueDate,paidDate,status,notes,`AUTO-${type}-${id.slice(0,8)}`,costCenterId,paymentMethodId,row.dueDate,row.amount,0,0,0,0,row.amount,paidAmount,row.operationDate,type,id,row.line));
-  }
-  for(const previous of existing)if(!kept.has(previous.source_line))statements.push(db.prepare("DELETE FROM financial_entries WHERE id=? AND organization_id=?").bind(previous.id,ORG));
-  return statements;
+function numero(p, chave, rotulo = chave) {
+  const bruto = p[chave];
+  if (bruto === "" || bruto === null || bruto === undefined) return 0;
+  const v = Number(bruto);
+  if (!Number.isFinite(v)) throw new Error(`Valor inválido em ${rotulo}.`);
+  return Math.round(v * 100) / 100;
 }
 
-async function seed(db){
-  const count=await db.prepare("SELECT COUNT(*) AS total FROM trucks WHERE organization_id=?").bind(ORG).all();
-  if(Number(count.results[0]?.total||0))return;
-  await db.batch([
-    db.prepare("INSERT OR IGNORE INTO trucks (id,organization_id,plate,name,status,current_km,body_type) VALUES (?,?,?,?,'Ativo',0,'Frigorífico')").bind("truck-kpe3j85",ORG,"KPE3J85","Caminhão KPE"),
-    db.prepare("INSERT OR IGNORE INTO trucks (id,organization_id,plate,name,status,current_km,body_type) VALUES (?,?,?,?,'Ativo',0,'Frigorífico')").bind("truck-llf9969",ORG,"LLF9969","Caminhão LLF"),
-    db.prepare("INSERT OR IGNORE INTO trucks (id,organization_id,plate,name,status,current_km,body_type) VALUES (?,?,?,?,'Ativo',0,'Frigorífico')").bind("truck-bao2d30",ORG,"BAO2D30","Caminhão BAO"),
+function kmOpcional(p, chave) {
+  const bruto = p[chave];
+  if (bruto === "" || bruto === null || bruto === undefined) return null;
+  const v = Number(String(bruto).replace(/\D/g, ""));
+  if (!Number.isFinite(v)) throw new Error("KM inválido.");
+  return v;
+}
+
+function dataValida(p, chave) {
+  const v = texto(p, chave, true, "data");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new Error("Informe a data no formato correto.");
+  return v;
+}
+
+function anoValido(v) {
+  const ano = Number(v);
+  if (!Number.isInteger(ano) || ano < 2000 || ano > 2100) throw new Error("Ano inválido.");
+  return ano;
+}
+
+async function todos(db, sql, ...params) {
+  return (await db.prepare(sql).bind(...params).all()).results;
+}
+async function executar(db, sql, ...params) {
+  return db.prepare(sql).bind(...params).run();
+}
+
+const RECEITAS_PADRAO = [
+  ["rec1", "Receita 01 a 15"],
+  ["rec2", "Receita 16 a 31"],
+];
+
+async function garantirLinhasDoAno(db, ano) {
+  const existentes = await todos(db, "SELECT id FROM fin_linhas WHERE ano=? LIMIT 1", ano);
+  if (existentes.length) return;
+  // Ano novo: copia os nomes das linhas do ano anterior (sem valores) ou cria só as receitas.
+  const anteriores = await todos(db, "SELECT grupo,nome,ordem FROM fin_linhas WHERE ano=? ORDER BY grupo,ordem", ano - 1);
+  const base = anteriores.length ? anteriores : RECEITAS_PADRAO.map(([grupo, nome], i) => ({ grupo, nome, ordem: i }));
+  await db.batch(base.map((l) =>
+    db.prepare("INSERT INTO fin_linhas (id,ano,grupo,nome,ordem) VALUES (?,?,?,?,?)").bind(crypto.randomUUID(), ano, l.grupo, l.nome, l.ordem)
+  ));
+}
+
+async function dados(db, url) {
+  const ano = anoValido(url.searchParams.get("ano") || new Date().getFullYear());
+  await garantirLinhasDoAno(db, ano);
+  const [caminhoes, lancamentos, linhas, valores] = await Promise.all([
+    todos(db, "SELECT * FROM cam_caminhoes ORDER BY ordem,placa"),
+    todos(db, "SELECT * FROM cam_lancamentos WHERE data>=? AND data<=? ORDER BY data,criado_em", `${ano}-01-01`, `${ano}-12-31`),
+    todos(db, "SELECT * FROM fin_linhas WHERE ano=? ORDER BY grupo,ordem,nome", ano),
+    todos(db, "SELECT v.linha_id,v.mes,v.valor FROM fin_valores v JOIN fin_linhas l ON l.id=v.linha_id WHERE l.ano=?", ano),
   ]);
+  // Último KM conhecido de cada caminhão (de qualquer ano), para preencher o próximo lançamento.
+  const ultimoKm = await todos(db,
+    "SELECT caminhao_id, MAX(COALESCE(km_final,km_inicial)) AS km FROM cam_lancamentos GROUP BY caminhao_id");
+  return { ano, caminhoes, lancamentos, linhas, valores, ultimoKm };
 }
 
-async function getData(db,env){
-  await seed(db);
-  const organization=await db.prepare("SELECT * FROM organizations WHERE id=?").bind(ORG).all();
-  const trucks=await db.prepare("SELECT * FROM trucks WHERE organization_id=? ORDER BY plate").bind(ORG).all();
-  const drivers=await db.prepare("SELECT * FROM drivers WHERE organization_id=? ORDER BY name").bind(ORG).all();
-  const clients=await db.prepare("SELECT * FROM clients WHERE organization_id=? ORDER BY name").bind(ORG).all();
-  const trips=await db.prepare("SELECT trips.*,trucks.plate,drivers.name AS driver_name,helpers.name AS helper_name,clients.name AS client_name FROM trips JOIN trucks ON trucks.id=trips.truck_id LEFT JOIN drivers ON drivers.id=trips.driver_id LEFT JOIN helpers ON helpers.id=trips.helper_id LEFT JOIN clients ON clients.id=trips.client_id WHERE trips.organization_id=? ORDER BY trip_date DESC,trips.created_at DESC LIMIT 1000").bind(ORG).all();
-  const expenses=await db.prepare("SELECT expenses.*,trucks.plate FROM expenses JOIN trucks ON trucks.id=expenses.truck_id WHERE expenses.organization_id=? ORDER BY expense_date DESC,expenses.created_at DESC LIMIT 1000").bind(ORG).all();
-  const maintenance=await db.prepare("SELECT maintenance.*,trucks.plate,parts_inventory.name AS part_name FROM maintenance JOIN trucks ON trucks.id=maintenance.truck_id LEFT JOIN parts_inventory ON parts_inventory.id=maintenance.part_id WHERE maintenance.organization_id=? ORDER BY maintenance_date DESC,maintenance.created_at DESC LIMIT 1000").bind(ORG).all();
-  const fuel=await db.prepare("SELECT fuel_records.*,trucks.plate,drivers.name AS driver_name FROM fuel_records JOIN trucks ON trucks.id=fuel_records.truck_id LEFT JOIN drivers ON drivers.id=fuel_records.driver_id WHERE fuel_records.organization_id=? ORDER BY fuel_date DESC,fuel_records.created_at DESC LIMIT 1000").bind(ORG).all();
-  const documents=await db.prepare("SELECT documents.*,trucks.plate,drivers.name AS driver_name FROM documents LEFT JOIN trucks ON trucks.id=documents.truck_id LEFT JOIN drivers ON drivers.id=documents.driver_id WHERE documents.organization_id=? ORDER BY expiry_date,documents.created_at DESC LIMIT 1000").bind(ORG).all();
-  const financial=await db.prepare("SELECT financial_entries.*,trucks.plate,clients.name AS client_name,cost_centers.name AS cost_center_name,payment_methods.name AS payment_method_name FROM financial_entries LEFT JOIN trucks ON trucks.id=financial_entries.truck_id LEFT JOIN clients ON clients.id=financial_entries.client_id LEFT JOIN cost_centers ON cost_centers.id=financial_entries.cost_center_id LEFT JOIN payment_methods ON payment_methods.id=financial_entries.payment_method_id WHERE financial_entries.organization_id=? ORDER BY due_date DESC,financial_entries.created_at DESC LIMIT 1000").bind(ORG).all();
-  const inspections=await db.prepare("SELECT inspections.*,trucks.plate,drivers.name AS driver_name FROM inspections JOIN trucks ON trucks.id=inspections.truck_id LEFT JOIN drivers ON drivers.id=inspections.driver_id WHERE inspections.organization_id=? ORDER BY inspection_date DESC,inspections.created_at DESC LIMIT 500").bind(ORG).all();
-  const occurrences=await db.prepare("SELECT occurrences.*,trucks.plate,drivers.name AS driver_name FROM occurrences LEFT JOIN trucks ON trucks.id=occurrences.truck_id LEFT JOIN drivers ON drivers.id=occurrences.driver_id WHERE occurrences.organization_id=? ORDER BY occurrence_date DESC,occurrences.created_at DESC LIMIT 500").bind(ORG).all();
-  const rules=await db.prepare("SELECT * FROM notification_rules WHERE organization_id=? ORDER BY created_at DESC").bind(ORG).all();
-  const communications=await db.prepare("SELECT * FROM communication_logs WHERE organization_id=? ORDER BY created_at DESC LIMIT 200").bind(ORG).all();
-  const financialCategories=await db.prepare("SELECT * FROM financial_categories WHERE organization_id=? ORDER BY code,name").bind(ORG).all();
-  const costCenters=await db.prepare("SELECT * FROM cost_centers WHERE organization_id=? ORDER BY code,name").bind(ORG).all();
-  const paymentMethods=await db.prepare("SELECT * FROM payment_methods WHERE organization_id=? ORDER BY name").bind(ORG).all();
-  const helpers=await db.prepare("SELECT * FROM helpers WHERE organization_id=? ORDER BY name").bind(ORG).all();
-  const telemetry=await db.prepare("SELECT telemetry_positions.*,trucks.plate FROM telemetry_positions JOIN trucks ON trucks.id=telemetry_positions.truck_id WHERE telemetry_positions.organization_id=? ORDER BY captured_at DESC LIMIT 500").bind(ORG).all();
-  const journeys=await db.prepare("SELECT driver_journeys.*,drivers.name AS driver_name,trucks.plate FROM driver_journeys JOIN drivers ON drivers.id=driver_journeys.driver_id LEFT JOIN trucks ON trucks.id=driver_journeys.truck_id WHERE driver_journeys.organization_id=? ORDER BY journey_date DESC,started_at DESC LIMIT 500").bind(ORG).all();
-  const tires=await db.prepare("SELECT tires.*,trucks.plate FROM tires LEFT JOIN trucks ON trucks.id=tires.truck_id WHERE tires.organization_id=? ORDER BY fire_number").bind(ORG).all();
-  const fines=await db.prepare("SELECT fines.*,trucks.plate,drivers.name AS driver_name FROM fines LEFT JOIN trucks ON trucks.id=fines.truck_id LEFT JOIN drivers ON drivers.id=fines.driver_id WHERE fines.organization_id=? ORDER BY infraction_date DESC LIMIT 500").bind(ORG).all();
-  const inventory=await db.prepare("SELECT * FROM parts_inventory WHERE organization_id=? ORDER BY name").bind(ORG).all();
-  const inventoryMovements=await db.prepare("SELECT inventory_movements.*,parts_inventory.name AS part_name FROM inventory_movements JOIN parts_inventory ON parts_inventory.id=inventory_movements.inventory_id WHERE inventory_movements.organization_id=? ORDER BY movement_date DESC,created_at DESC LIMIT 500").bind(ORG).all();
-  return {organization:organization.results[0]||{id:ORG,name:"Cliente piloto",plan:"Piloto"},trucks:trucks.results,drivers:drivers.results,clients:clients.results,trips:trips.results,expenses:expenses.results,maintenance:maintenance.results,fuel:fuel.results,documents:documents.results,financial:financial.results,inspections:inspections.results,occurrences:occurrences.results,rules:rules.results,communications:communications.results,financialCategories:financialCategories.results,costCenters:costCenters.results,paymentMethods:paymentMethods.results,helpers:helpers.results,telemetry:telemetry.results,journeys:journeys.results,tires:tires.results,fines:fines.results,inventory:inventory.results,inventoryMovements:inventoryMovements.results,storage:{r2:Boolean(env.BUCKET)},integrations:{email:Boolean(env.RESEND_API_KEY&&env.EMAIL_FROM),whatsapp:Boolean(env.WHATSAPP_TOKEN&&env.WHATSAPP_PHONE_NUMBER_ID&&env.WHATSAPP_TEMPLATE_NAME),whatsappWebhook:Boolean(env.WHATSAPP_WEBHOOK_VERIFY_TOKEN)}};
-}
-
-async function createEntity(request,env,db){
-  const p=await request.json(),type=textValue(p,"type",true),id=crypto.randomUUID();
-  if(type==="vehicle") await db.prepare("INSERT INTO trucks (id,organization_id,plate,name,status,current_km,brand,model,year,renavam,chassis,capacity_kg,body_type,pbt_kg,axle_count,tachograph_expiry) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,ORG,plateValue(p),textValue(p,"name",true),textValue(p,"status")||"Ativo",numberValue(p,"currentKm"),textValue(p,"brand"),textValue(p,"model"),optionalNumber(p,"year"),textValue(p,"renavam"),textValue(p,"chassis").toUpperCase(),numberValue(p,"capacityKg"),textValue(p,"bodyType")||"Frigorífico",numberValue(p,"pbtKg"),numberValue(p,"axleCount")||2,textValue(p,"tachographExpiry")||null).run();
-  else if(type==="driver") await db.prepare("INSERT INTO drivers (id,organization_id,name,cpf,cnh,cnh_category,cnh_expiry,phone,email,status) VALUES (?,?,?,?,?,?,?,?,?,?)").bind(id,ORG,textValue(p,"name",true),taxIdValue(p,"cpf","cpf"),textValue(p,"cnh"),textValue(p,"cnhCategory"),textValue(p,"cnhExpiry")||null,phoneValue(p,"phone"),emailValue(p,"email"),textValue(p,"status")||"Ativo").run();
-  else if(type==="client") await db.prepare("INSERT INTO clients (id,organization_id,name,document,contact_name,phone,email,city,status) VALUES (?,?,?,?,?,?,?,?,?)").bind(id,ORG,textValue(p,"name",true),taxIdValue(p,"document"),textValue(p,"contactName"),phoneValue(p,"phone"),emailValue(p,"email"),textValue(p,"city"),textValue(p,"status")||"Ativo").run();
-  else if(type==="trip"){
-    const start=numberValue(p,"kmStart"),end=numberValue(p,"kmEnd"),truckId=textValue(p,"truckId",true);if(end<start)throw new Error("O KM final não pode ser menor que o KM inicial.");const release=await assessTripRelease(db,p);
-    const values={id,organization_id:ORG,truck_id:truckId,driver_id:textValue(p,"driverId")||null,helper_id:textValue(p,"helperId")||null,client_id:textValue(p,"clientId")||null,trip_date:textValue(p,"date",true),region:textValue(p,"region",true),origin:textValue(p,"origin"),destination:textValue(p,"destination"),km_start:start,km_end:end,excess_km:end-start,departure_value:numberValue(p,"departureValue"),diesel:numberValue(p,"diesel"),freight:numberValue(p,"freight"),driver_cost:numberValue(p,"driverCost"),assistant_cost:numberValue(p,"assistantCost"),runs:numberValue(p,"runs"),overnight:p.overnight?1:0,attachment_name:textValue(p,"attachmentName"),attachment_data:textValue(p,"attachmentData"),notes:textValue(p,"notes"),status:textValue(p,"status")||"Programada",operation_type:textValue(p,"operationType")||"Remunerada",cargo_type:textValue(p,"cargoType"),cargo_description:textValue(p,"cargoDescription"),weight_kg:numberValue(p,"weightKg"),volume_m3:numberValue(p,"volumeM3"),package_count:numberValue(p,"packageCount"),empty_km:numberValue(p,"emptyKm"),axle_count:numberValue(p,"axleCount"),ciot:textValue(p,"ciot"),cte_key:textValue(p,"cteKey"),mdfe_key:textValue(p,"mdfeKey"),invoice_key:textValue(p,"invoiceKey"),toll_amount:numberValue(p,"tollAmount"),toll_advance:numberValue(p,"tollAdvance"),floor_freight:numberValue(p,"floorFreight"),floor_freight_checked:p.floorFreightChecked?1:0,fuel_cost_mode:textValue(p,"fuelCostMode")||"Abastecimentos",setpoint_temp:optionalSignedNumber(p,"setpointTemp"),departure_temp:optionalSignedNumber(p,"departureTemp"),arrival_temp:optionalSignedNumber(p,"arrivalTemp"),min_temp:optionalSignedNumber(p,"minTemp"),max_temp:optionalSignedNumber(p,"maxTemp"),pre_cooled:p.preCooled?1:0,sanitized:p.sanitized?1:0,thermometer_ok:p.thermometerOk?1:0,release_status:release.status,release_notes:release.notes,release_override_reason:release.override};const columns=Object.keys(values);
-    await db.batch([db.prepare(`INSERT INTO trips (${columns.join(",")}) VALUES (${columns.map(()=>"?").join(",")})`).bind(...Object.values(values)),db.prepare("UPDATE trucks SET current_km=MAX(current_km,?) WHERE id=? AND organization_id=?").bind(end,truckId,ORG)]);
-  } else if(type==="expense") await db.prepare("INSERT INTO expenses (id,organization_id,truck_id,expense_date,category,description,amount,km,notes) VALUES (?,?,?,?,?,?,?,?,?)").bind(id,ORG,textValue(p,"truckId",true),textValue(p,"date",true),textValue(p,"category",true),textValue(p,"description",true),numberValue(p,"amount"),optionalNumber(p,"km"),textValue(p,"notes")).run();
-  else if(type==="maintenance") {const partId=textValue(p,"partId")||null,partQuantity=numberValue(p,"partQuantity");await validatePartAvailability(db,partId,partQuantity);const statements=[db.prepare("INSERT INTO maintenance (id,organization_id,truck_id,maintenance_date,service,cost,km,next_date,next_km,status,notes,maintenance_type,supplier,invoice_number,labor_cost,parts_cost,downtime_hours,part_id,part_quantity) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,ORG,textValue(p,"truckId",true),textValue(p,"date",true),textValue(p,"service",true),numberValue(p,"cost"),optionalNumber(p,"km"),textValue(p,"nextDate")||null,optionalNumber(p,"nextKm"),textValue(p,"status")||"Concluída",textValue(p,"notes"),textValue(p,"maintenanceType")||"Preventiva",textValue(p,"supplier"),textValue(p,"invoiceNumber"),numberValue(p,"laborCost"),numberValue(p,"partsCost"),numberValue(p,"downtimeHours"),partId,partQuantity)];if(partId&&partQuantity>0){statements.push(db.prepare("UPDATE parts_inventory SET quantity=quantity-? WHERE id=? AND organization_id=?").bind(partQuantity,partId,ORG));statements.push(db.prepare("INSERT INTO inventory_movements (id,organization_id,inventory_id,movement_date,direction,quantity,reference_type,reference_id,notes) VALUES (?,?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(),ORG,partId,textValue(p,"date",true),"Saída",partQuantity,"maintenance",id,`Uso em ${textValue(p,"service",true)}`))}await db.batch(statements);}
-  else if(type==="fuel"){
-    const liters=positiveNumber(p,"liters","uma quantidade de litros"),total=numberValue(p,"total"),price=numberValue(p,"pricePerLiter")||(total/liters),truckId=textValue(p,"truckId",true),odometer=numberValue(p,"odometer");
-    await db.batch([db.prepare("INSERT INTO fuel_records (id,organization_id,truck_id,driver_id,fuel_date,liters,price_per_liter,total,odometer,station,full_tank,attachment_name,attachment_data,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,ORG,truckId,textValue(p,"driverId")||null,textValue(p,"date",true),liters,price,total,odometer,textValue(p,"station"),p.fullTank===false?0:1,textValue(p,"attachmentName"),textValue(p,"attachmentData"),textValue(p,"notes")),db.prepare("UPDATE trucks SET current_km=MAX(current_km,?) WHERE id=? AND organization_id=?").bind(odometer,truckId,ORG)]);
-  } else if(type==="document") await db.prepare("INSERT INTO documents (id,organization_id,truck_id,driver_id,document_type,description,number,expiry_date,amount,status,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?)").bind(id,ORG,textValue(p,"truckId")||null,textValue(p,"driverId")||null,textValue(p,"documentType",true),textValue(p,"description",true),textValue(p,"number"),textValue(p,"expiryDate")||null,numberValue(p,"amount"),textValue(p,"status")||"Válido",textValue(p,"notes")).run();
-  else if(type==="financial"){const original=numberValue(p,"originalAmount")||numberValue(p,"amount"),net=Math.max(0,original+numberValue(p,"fees")+numberValue(p,"interest")+numberValue(p,"fine")-numberValue(p,"discount")),requested=textValue(p,"status")||"Pendente",paid=requested==="Pago"?net:Math.min(net,numberValue(p,"paidAmount")),status=paid>=net&&net>0?"Pago":paid>0?"Parcial":requested,paidDate=paid>0||status==="Pago"?(textValue(p,"paidDate")||businessDate()):null;await db.prepare("INSERT INTO financial_entries (id,organization_id,truck_id,client_id,entry_type,category,description,amount,due_date,paid_date,status,notes,reference,cost_center_id,payment_method_id,original_due_date,original_amount,fees,interest,fine,discount,net_amount,paid_amount,competence_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,ORG,textValue(p,"truckId")||null,textValue(p,"clientId")||null,textValue(p,"entryType",true),textValue(p,"category",true),textValue(p,"description",true),net,textValue(p,"dueDate",true),paidDate,status,textValue(p,"notes"),textValue(p,"reference"),textValue(p,"costCenterId")||null,textValue(p,"paymentMethodId")||null,textValue(p,"originalDueDate")||textValue(p,"dueDate",true),original,numberValue(p,"fees"),numberValue(p,"interest"),numberValue(p,"fine"),numberValue(p,"discount"),net,paid,textValue(p,"competenceDate")||textValue(p,"dueDate",true)).run()}
-  else if(type==="inspection"){
-    const failed=["brakesOk","tiresOk","lightsOk","refrigerationOk","documentsOk"].some(k=>p[k]===false);
-    await db.prepare("INSERT INTO inspections (id,organization_id,truck_id,driver_id,inspection_date,odometer,brakes_ok,tires_ok,lights_ok,refrigeration_ok,documents_ok,status,attachment_name,attachment_data,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,ORG,textValue(p,"truckId",true),textValue(p,"driverId")||null,textValue(p,"date",true),numberValue(p,"odometer"),p.brakesOk===false?0:1,p.tiresOk===false?0:1,p.lightsOk===false?0:1,p.refrigerationOk===false?0:1,p.documentsOk===false?0:1,failed?"Reprovado":"Aprovado",textValue(p,"attachmentName"),textValue(p,"attachmentData"),textValue(p,"notes")).run();
-  } else if(type==="occurrence") await db.prepare("INSERT INTO occurrences (id,organization_id,truck_id,driver_id,occurrence_date,occurrence_type,severity,description,status) VALUES (?,?,?,?,?,?,?,?,?)").bind(id,ORG,textValue(p,"truckId")||null,textValue(p,"driverId")||null,textValue(p,"date",true),textValue(p,"occurrenceType",true),textValue(p,"severity")||"Baixa",textValue(p,"description",true),textValue(p,"status")||"Aberta").run();
-  else if(type==="rule") await db.prepare("INSERT INTO notification_rules (id,organization_id,name,event_type,days_before,channel,recipient,template_name,active) VALUES (?,?,?,?,?,?,?,?,?)").bind(id,ORG,textValue(p,"name",true),textValue(p,"eventType",true),numberValue(p,"daysBefore"),textValue(p,"channel",true),recipientValue(p),textValue(p,"templateName"),p.active===false?0:1).run();
-  else if(type==="financialCategory") await db.prepare("INSERT INTO financial_categories (id,organization_id,code,name,entry_type,status) VALUES (?,?,?,?,?,?)").bind(id,ORG,textValue(p,"code",true),textValue(p,"name",true),textValue(p,"entryType")||"Ambos",textValue(p,"status")||"Ativo").run();
-  else if(type==="costCenter") await db.prepare("INSERT INTO cost_centers (id,organization_id,code,name,status) VALUES (?,?,?,?,?)").bind(id,ORG,textValue(p,"code",true),textValue(p,"name",true),textValue(p,"status")||"Ativo").run();
-  else if(type==="paymentMethod") await db.prepare("INSERT INTO payment_methods (id,organization_id,name,kind,status) VALUES (?,?,?,?,?)").bind(id,ORG,textValue(p,"name",true),textValue(p,"kind",true),textValue(p,"status")||"Ativo").run();
-  else if(type==="helper") await db.prepare("INSERT INTO helpers (id,organization_id,name,cpf,phone,email,status) VALUES (?,?,?,?,?,?,?)").bind(id,ORG,textValue(p,"name",true),taxIdValue(p,"cpf","cpf"),phoneValue(p,"phone"),emailValue(p,"email"),textValue(p,"status")||"Ativo").run();
-  else if(type==="telemetry") await db.prepare("INSERT INTO telemetry_positions (id,organization_id,truck_id,latitude,longitude,speed,ignition,provider,captured_at) VALUES (?,?,?,?,?,?,?,?,?)").bind(id,ORG,textValue(p,"truckId",true),rangedNumber(p,"latitude",-90,90),rangedNumber(p,"longitude",-180,180),numberValue(p,"speed"),p.ignition?1:0,textValue(p,"provider")||"Manual",textValue(p,"capturedAt",true)).run();
-  else if(type==="journey") await db.prepare("INSERT INTO driver_journeys (id,organization_id,driver_id,truck_id,journey_date,started_at,ended_at,driving_minutes,waiting_minutes,rest_minutes,notes,max_continuous_minutes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,ORG,textValue(p,"driverId",true),textValue(p,"truckId")||null,textValue(p,"date",true),textValue(p,"startedAt",true),textValue(p,"endedAt")||null,numberValue(p,"drivingMinutes"),numberValue(p,"waitingMinutes"),numberValue(p,"restMinutes"),textValue(p,"notes"),numberValue(p,"maxContinuousMinutes")).run();
-  else if(type==="tire") await db.prepare("INSERT INTO tires (id,organization_id,truck_id,fire_number,brand,model,axle_position,tread_mm,recap_count,installed_km,status) VALUES (?,?,?,?,?,?,?,?,?,?,?)").bind(id,ORG,textValue(p,"truckId")||null,textValue(p,"fireNumber",true),textValue(p,"brand"),textValue(p,"model"),textValue(p,"axlePosition"),numberValue(p,"treadMm"),numberValue(p,"recapCount"),optionalNumber(p,"installedKm"),textValue(p,"status")||"Em uso").run();
-  else if(type==="fine") await db.prepare("INSERT INTO fines (id,organization_id,truck_id,driver_id,infraction_date,infraction_code,agency,severity,points,amount,indication_deadline,status,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,ORG,textValue(p,"truckId")||null,textValue(p,"driverId")||null,textValue(p,"date",true),textValue(p,"infractionCode",true),textValue(p,"agency",true),textValue(p,"severity",true),numberValue(p,"points"),numberValue(p,"amount"),textValue(p,"indicationDeadline")||null,textValue(p,"status")||"Pendente",textValue(p,"notes")).run();
-  else if(type==="inventory") await db.prepare("INSERT INTO parts_inventory (id,organization_id,sku,name,quantity,minimum_quantity,unit,unit_cost,location,status) VALUES (?,?,?,?,?,?,?,?,?,?)").bind(id,ORG,textValue(p,"sku",true),textValue(p,"name",true),numberValue(p,"quantity"),numberValue(p,"minimumQuantity"),textValue(p,"unit")||"un",numberValue(p,"unitCost"),textValue(p,"location"),textValue(p,"status")||"Ativo").run();
-  else if(type==="message") return sendCommunication(request,env,db,p,id);
-  else throw new Error("Tipo de cadastro inválido.");
-  const financialImpact=await automaticFinancialStatements(db,type,id,p);if(financialImpact.length)await db.batch(financialImpact);
-  await audit(db,request,"criou",type,id);return json({ok:true,id,financialEntries:financialImpact.length},201);
-}
-
-async function updateEntity(request,env,db){
-  const p=await request.json(),type=textValue(p,"type",true),id=textValue(p,"id",true);
-  const updateTables={vehicle:"trucks",driver:"drivers",client:"clients",trip:"trips",expense:"expenses",maintenance:"maintenance",fuel:"fuel_records",document:"documents",financial:"financial_entries",inspection:"inspections",occurrence:"occurrences",rule:"notification_rules",financialCategory:"financial_categories",costCenter:"cost_centers",paymentMethod:"payment_methods",helper:"helpers",telemetry:"telemetry_positions",journey:"driver_journeys",tire:"tires",fine:"fines",inventory:"parts_inventory"};
-  if(type!=="company"){if(!updateTables[type])throw new Error("Tipo de cadastro inválido para edição.");const found=await db.prepare(`SELECT id FROM ${updateTables[type]} WHERE id=? AND organization_id=? LIMIT 1`).bind(id,ORG).all();if(!found.results[0])throw new Error("Registro não encontrado.")}
-  if(type==="company")await db.prepare("UPDATE organizations SET name=?,legal_name=?,document=?,state_registration=?,phone=?,whatsapp=?,email=?,zip_code=?,street=?,address_number=?,complement=?,district=?,city=?,state=?,primary_color=?,secondary_color=?,sidebar_color=?,surface_color=?,theme_mode=?,border_radius=?,compact_mode=?,logo_data=?,email_batch_size=?,email_interval_seconds=?,whatsapp_batch_size=?,whatsapp_interval_seconds=?,rntrc=?,rntrc_expiry=?,operation_mode=?,rctrc_policy=?,rctrc_expiry=?,rcdc_policy=?,rcdc_expiry=?,rcv_policy=?,rcv_expiry=?,pgr_expiry=? WHERE id=?").bind(textValue(p,"name",true),textValue(p,"legalName"),taxIdValue(p,"document","cnpj"),textValue(p,"stateRegistration"),phoneValue(p,"phone"),phoneValue(p,"whatsapp"),emailValue(p,"email"),zipValue(p,"zipCode"),textValue(p,"street"),textValue(p,"addressNumber"),textValue(p,"complement"),textValue(p,"district"),textValue(p,"city"),textValue(p,"state").toUpperCase().replace(/[^A-Z]/g,"").slice(0,2),textValue(p,"primaryColor")||"#4647d9",textValue(p,"secondaryColor")||"#ef7b2d",textValue(p,"sidebarColor")||"#0c2f47",textValue(p,"surfaceColor")||"#ffffff",textValue(p,"themeMode")||"Claro",Math.max(6,Math.min(28,numberValue(p,"borderRadius")||15)),p.compactMode?1:0,textValue(p,"logoData"),numberValue(p,"emailBatchSize")||20,Math.max(30,numberValue(p,"emailIntervalSeconds")||30),numberValue(p,"whatsappBatchSize")||20,Math.max(30,numberValue(p,"whatsappIntervalSeconds")||30),textValue(p,"rntrc"),textValue(p,"rntrcExpiry")||null,textValue(p,"operationMode")||"Transporte remunerado",textValue(p,"rctrcPolicy"),textValue(p,"rctrcExpiry")||null,textValue(p,"rcdcPolicy"),textValue(p,"rcdcExpiry")||null,textValue(p,"rcvPolicy"),textValue(p,"rcvExpiry")||null,textValue(p,"pgrExpiry")||null,ORG).run();
-  else if(type==="vehicle")await db.prepare("UPDATE trucks SET plate=?,name=?,status=?,current_km=?,brand=?,model=?,year=?,renavam=?,chassis=?,capacity_kg=?,body_type=?,pbt_kg=?,axle_count=?,tachograph_expiry=? WHERE id=? AND organization_id=?").bind(plateValue(p),textValue(p,"name",true),textValue(p,"status")||"Ativo",numberValue(p,"currentKm"),textValue(p,"brand"),textValue(p,"model"),optionalNumber(p,"year"),textValue(p,"renavam"),textValue(p,"chassis").toUpperCase(),numberValue(p,"capacityKg"),textValue(p,"bodyType")||"Frigorífico",numberValue(p,"pbtKg"),numberValue(p,"axleCount")||2,textValue(p,"tachographExpiry")||null,id,ORG).run();
-  else if(type==="driver")await db.prepare("UPDATE drivers SET name=?,cpf=?,cnh=?,cnh_category=?,cnh_expiry=?,phone=?,email=?,status=? WHERE id=? AND organization_id=?").bind(textValue(p,"name",true),taxIdValue(p,"cpf","cpf"),textValue(p,"cnh"),textValue(p,"cnhCategory"),textValue(p,"cnhExpiry")||null,phoneValue(p,"phone"),emailValue(p,"email"),textValue(p,"status")||"Ativo",id,ORG).run();
-  else if(type==="client")await db.prepare("UPDATE clients SET name=?,document=?,contact_name=?,phone=?,email=?,city=?,status=? WHERE id=? AND organization_id=?").bind(textValue(p,"name",true),taxIdValue(p,"document"),textValue(p,"contactName"),phoneValue(p,"phone"),emailValue(p,"email"),textValue(p,"city"),textValue(p,"status")||"Ativo",id,ORG).run();
-  else if(type==="trip"){const start=numberValue(p,"kmStart"),end=numberValue(p,"kmEnd"),truckId=textValue(p,"truckId",true);if(end<start)throw new Error("O KM final não pode ser menor que o KM inicial.");const release=await assessTripRelease(db,p),values={truck_id:truckId,driver_id:textValue(p,"driverId")||null,helper_id:textValue(p,"helperId")||null,client_id:textValue(p,"clientId")||null,trip_date:textValue(p,"date",true),region:textValue(p,"region",true),origin:textValue(p,"origin"),destination:textValue(p,"destination"),km_start:start,km_end:end,excess_km:end-start,departure_value:numberValue(p,"departureValue"),diesel:numberValue(p,"diesel"),freight:numberValue(p,"freight"),driver_cost:numberValue(p,"driverCost"),assistant_cost:numberValue(p,"assistantCost"),runs:numberValue(p,"runs"),overnight:p.overnight?1:0,notes:textValue(p,"notes"),status:textValue(p,"status")||"Programada",operation_type:textValue(p,"operationType")||"Remunerada",cargo_type:textValue(p,"cargoType"),cargo_description:textValue(p,"cargoDescription"),weight_kg:numberValue(p,"weightKg"),volume_m3:numberValue(p,"volumeM3"),package_count:numberValue(p,"packageCount"),empty_km:numberValue(p,"emptyKm"),axle_count:numberValue(p,"axleCount"),ciot:textValue(p,"ciot"),cte_key:textValue(p,"cteKey"),mdfe_key:textValue(p,"mdfeKey"),invoice_key:textValue(p,"invoiceKey"),toll_amount:numberValue(p,"tollAmount"),toll_advance:numberValue(p,"tollAdvance"),floor_freight:numberValue(p,"floorFreight"),floor_freight_checked:p.floorFreightChecked?1:0,fuel_cost_mode:textValue(p,"fuelCostMode")||"Abastecimentos",setpoint_temp:optionalSignedNumber(p,"setpointTemp"),departure_temp:optionalSignedNumber(p,"departureTemp"),arrival_temp:optionalSignedNumber(p,"arrivalTemp"),min_temp:optionalSignedNumber(p,"minTemp"),max_temp:optionalSignedNumber(p,"maxTemp"),pre_cooled:p.preCooled?1:0,sanitized:p.sanitized?1:0,thermometer_ok:p.thermometerOk?1:0,release_status:release.status,release_notes:release.notes,release_override_reason:release.override};const attachmentName=textValue(p,"attachmentName"),attachmentData=textValue(p,"attachmentData");if(attachmentName)values.attachment_name=attachmentName;if(attachmentData)values.attachment_data=attachmentData;const keys=Object.keys(values);await db.batch([db.prepare(`UPDATE trips SET ${keys.map(key=>`${key}=?`).join(",")} WHERE id=? AND organization_id=?`).bind(...Object.values(values),id,ORG),db.prepare("UPDATE trucks SET current_km=MAX(current_km,?) WHERE id=? AND organization_id=?").bind(end,truckId,ORG)]);}
-  else if(type==="expense")await db.prepare("UPDATE expenses SET truck_id=?,expense_date=?,category=?,description=?,amount=?,km=?,notes=? WHERE id=? AND organization_id=?").bind(textValue(p,"truckId",true),textValue(p,"date",true),textValue(p,"category",true),textValue(p,"description",true),numberValue(p,"amount"),optionalNumber(p,"km"),textValue(p,"notes"),id,ORG).run();
-  else if(type==="maintenance"){const previous=(await db.prepare("SELECT part_id,part_quantity FROM maintenance WHERE id=? AND organization_id=?").bind(id,ORG).all()).results[0],partId=textValue(p,"partId")||null,partQuantity=numberValue(p,"partQuantity"),credit=previous?.part_id===partId?Number(previous.part_quantity||0):0;await validatePartAvailability(db,partId,partQuantity,credit);const statements=[];if(previous?.part_id&&Number(previous.part_quantity)>0)statements.push(db.prepare("UPDATE parts_inventory SET quantity=quantity+? WHERE id=? AND organization_id=?").bind(Number(previous.part_quantity),previous.part_id,ORG));if(partId&&partQuantity>0)statements.push(db.prepare("UPDATE parts_inventory SET quantity=quantity-? WHERE id=? AND organization_id=?").bind(partQuantity,partId,ORG));statements.push(db.prepare("UPDATE maintenance SET truck_id=?,maintenance_date=?,service=?,cost=?,km=?,next_date=?,next_km=?,status=?,notes=?,maintenance_type=?,supplier=?,invoice_number=?,labor_cost=?,parts_cost=?,downtime_hours=?,part_id=?,part_quantity=? WHERE id=? AND organization_id=?").bind(textValue(p,"truckId",true),textValue(p,"date",true),textValue(p,"service",true),numberValue(p,"cost"),optionalNumber(p,"km"),textValue(p,"nextDate")||null,optionalNumber(p,"nextKm"),textValue(p,"status")||"Concluída",textValue(p,"notes"),textValue(p,"maintenanceType")||"Preventiva",textValue(p,"supplier"),textValue(p,"invoiceNumber"),numberValue(p,"laborCost"),numberValue(p,"partsCost"),numberValue(p,"downtimeHours"),partId,partQuantity,id,ORG));statements.push(db.prepare("DELETE FROM inventory_movements WHERE organization_id=? AND reference_type='maintenance' AND reference_id=?").bind(ORG,id));if(partId&&partQuantity>0)statements.push(db.prepare("INSERT INTO inventory_movements (id,organization_id,inventory_id,movement_date,direction,quantity,reference_type,reference_id,notes) VALUES (?,?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(),ORG,partId,textValue(p,"date",true),"Saída",partQuantity,"maintenance",id,`Uso em ${textValue(p,"service",true)}`));await db.batch(statements);}
-  else if(type==="fuel"){const liters=positiveNumber(p,"liters","uma quantidade de litros"),total=numberValue(p,"total"),price=numberValue(p,"pricePerLiter")||(total/liters),attachmentName=textValue(p,"attachmentName"),attachmentData=textValue(p,"attachmentData");await db.prepare("UPDATE fuel_records SET truck_id=?,driver_id=?,fuel_date=?,liters=?,price_per_liter=?,total=?,odometer=?,station=?,full_tank=?,attachment_name=CASE WHEN ?='' THEN attachment_name ELSE ? END,attachment_data=CASE WHEN ?='' THEN attachment_data ELSE ? END,notes=? WHERE id=? AND organization_id=?").bind(textValue(p,"truckId",true),textValue(p,"driverId")||null,textValue(p,"date",true),liters,price,total,numberValue(p,"odometer"),textValue(p,"station"),p.fullTank===false?0:1,attachmentName,attachmentName,attachmentData,attachmentData,textValue(p,"notes"),id,ORG).run();}
-  else if(type==="document")await db.prepare("UPDATE documents SET truck_id=?,driver_id=?,document_type=?,description=?,number=?,expiry_date=?,amount=?,status=?,notes=? WHERE id=? AND organization_id=?").bind(textValue(p,"truckId")||null,textValue(p,"driverId")||null,textValue(p,"documentType",true),textValue(p,"description",true),textValue(p,"number"),textValue(p,"expiryDate")||null,numberValue(p,"amount"),textValue(p,"status")||"Válido",textValue(p,"notes"),id,ORG).run();
-  else if(type==="financial"){const original=numberValue(p,"originalAmount")||numberValue(p,"amount"),net=Math.max(0,original+numberValue(p,"fees")+numberValue(p,"interest")+numberValue(p,"fine")-numberValue(p,"discount")),requested=textValue(p,"status")||"Pendente",paid=requested==="Pago"?net:Math.min(net,numberValue(p,"paidAmount")),status=paid>=net&&net>0?"Pago":paid>0?"Parcial":requested,paidDate=paid>0||status==="Pago"?(textValue(p,"paidDate")||businessDate()):null;await db.prepare("UPDATE financial_entries SET truck_id=?,client_id=?,entry_type=?,category=?,description=?,amount=?,due_date=?,paid_date=?,status=?,notes=?,reference=?,cost_center_id=?,payment_method_id=?,original_due_date=COALESCE(original_due_date,?),original_amount=?,fees=?,interest=?,fine=?,discount=?,net_amount=?,paid_amount=?,competence_date=? WHERE id=? AND organization_id=?").bind(textValue(p,"truckId")||null,textValue(p,"clientId")||null,textValue(p,"entryType",true),textValue(p,"category",true),textValue(p,"description",true),net,textValue(p,"dueDate",true),paidDate,status,textValue(p,"notes"),textValue(p,"reference"),textValue(p,"costCenterId")||null,textValue(p,"paymentMethodId")||null,textValue(p,"originalDueDate")||textValue(p,"dueDate",true),original,numberValue(p,"fees"),numberValue(p,"interest"),numberValue(p,"fine"),numberValue(p,"discount"),net,paid,textValue(p,"competenceDate")||textValue(p,"dueDate",true),id,ORG).run();}
-  else if(type==="inspection"){const failed=["brakesOk","tiresOk","lightsOk","refrigerationOk","documentsOk"].some(k=>p[k]===false),attachmentName=textValue(p,"attachmentName"),attachmentData=textValue(p,"attachmentData");await db.prepare("UPDATE inspections SET truck_id=?,driver_id=?,inspection_date=?,odometer=?,brakes_ok=?,tires_ok=?,lights_ok=?,refrigeration_ok=?,documents_ok=?,status=?,attachment_name=CASE WHEN ?='' THEN attachment_name ELSE ? END,attachment_data=CASE WHEN ?='' THEN attachment_data ELSE ? END,notes=? WHERE id=? AND organization_id=?").bind(textValue(p,"truckId",true),textValue(p,"driverId")||null,textValue(p,"date",true),numberValue(p,"odometer"),p.brakesOk===false?0:1,p.tiresOk===false?0:1,p.lightsOk===false?0:1,p.refrigerationOk===false?0:1,p.documentsOk===false?0:1,failed?"Reprovado":"Aprovado",attachmentName,attachmentName,attachmentData,attachmentData,textValue(p,"notes"),id,ORG).run();}
-  else if(type==="occurrence")await db.prepare("UPDATE occurrences SET truck_id=?,driver_id=?,occurrence_date=?,occurrence_type=?,severity=?,description=?,status=? WHERE id=? AND organization_id=?").bind(textValue(p,"truckId")||null,textValue(p,"driverId")||null,textValue(p,"date",true),textValue(p,"occurrenceType",true),textValue(p,"severity")||"Baixa",textValue(p,"description",true),textValue(p,"status")||"Aberta",id,ORG).run();
-  else if(type==="rule")await db.prepare("UPDATE notification_rules SET name=?,event_type=?,days_before=?,channel=?,recipient=?,template_name=?,active=? WHERE id=? AND organization_id=?").bind(textValue(p,"name",true),textValue(p,"eventType",true),numberValue(p,"daysBefore"),textValue(p,"channel",true),recipientValue(p),textValue(p,"templateName"),p.active===false?0:1,id,ORG).run();
-  else if(type==="financialCategory")await db.prepare("UPDATE financial_categories SET code=?,name=?,entry_type=?,status=? WHERE id=? AND organization_id=?").bind(textValue(p,"code",true),textValue(p,"name",true),textValue(p,"entryType")||"Ambos",textValue(p,"status")||"Ativo",id,ORG).run();
-  else if(type==="costCenter")await db.prepare("UPDATE cost_centers SET code=?,name=?,status=? WHERE id=? AND organization_id=?").bind(textValue(p,"code",true),textValue(p,"name",true),textValue(p,"status")||"Ativo",id,ORG).run();
-  else if(type==="paymentMethod")await db.prepare("UPDATE payment_methods SET name=?,kind=?,status=? WHERE id=? AND organization_id=?").bind(textValue(p,"name",true),textValue(p,"kind",true),textValue(p,"status")||"Ativo",id,ORG).run();
-  else if(type==="helper")await db.prepare("UPDATE helpers SET name=?,cpf=?,phone=?,email=?,status=? WHERE id=? AND organization_id=?").bind(textValue(p,"name",true),taxIdValue(p,"cpf","cpf"),phoneValue(p,"phone"),emailValue(p,"email"),textValue(p,"status")||"Ativo",id,ORG).run();
-  else if(type==="telemetry")await db.prepare("UPDATE telemetry_positions SET truck_id=?,latitude=?,longitude=?,speed=?,ignition=?,provider=?,captured_at=? WHERE id=? AND organization_id=?").bind(textValue(p,"truckId",true),rangedNumber(p,"latitude",-90,90),rangedNumber(p,"longitude",-180,180),numberValue(p,"speed"),p.ignition?1:0,textValue(p,"provider")||"Manual",textValue(p,"capturedAt",true),id,ORG).run();
-  else if(type==="journey")await db.prepare("UPDATE driver_journeys SET driver_id=?,truck_id=?,journey_date=?,started_at=?,ended_at=?,driving_minutes=?,waiting_minutes=?,rest_minutes=?,notes=?,max_continuous_minutes=? WHERE id=? AND organization_id=?").bind(textValue(p,"driverId",true),textValue(p,"truckId")||null,textValue(p,"date",true),textValue(p,"startedAt",true),textValue(p,"endedAt")||null,numberValue(p,"drivingMinutes"),numberValue(p,"waitingMinutes"),numberValue(p,"restMinutes"),textValue(p,"notes"),numberValue(p,"maxContinuousMinutes"),id,ORG).run();
-  else if(type==="tire")await db.prepare("UPDATE tires SET truck_id=?,fire_number=?,brand=?,model=?,axle_position=?,tread_mm=?,recap_count=?,installed_km=?,status=? WHERE id=? AND organization_id=?").bind(textValue(p,"truckId")||null,textValue(p,"fireNumber",true),textValue(p,"brand"),textValue(p,"model"),textValue(p,"axlePosition"),numberValue(p,"treadMm"),numberValue(p,"recapCount"),optionalNumber(p,"installedKm"),textValue(p,"status")||"Em uso",id,ORG).run();
-  else if(type==="fine")await db.prepare("UPDATE fines SET truck_id=?,driver_id=?,infraction_date=?,infraction_code=?,agency=?,severity=?,points=?,amount=?,indication_deadline=?,status=?,notes=? WHERE id=? AND organization_id=?").bind(textValue(p,"truckId")||null,textValue(p,"driverId")||null,textValue(p,"date",true),textValue(p,"infractionCode",true),textValue(p,"agency",true),textValue(p,"severity",true),numberValue(p,"points"),numberValue(p,"amount"),textValue(p,"indicationDeadline")||null,textValue(p,"status")||"Pendente",textValue(p,"notes"),id,ORG).run();
-  else if(type==="inventory")await db.prepare("UPDATE parts_inventory SET sku=?,name=?,quantity=?,minimum_quantity=?,unit=?,unit_cost=?,location=?,status=? WHERE id=? AND organization_id=?").bind(textValue(p,"sku",true),textValue(p,"name",true),numberValue(p,"quantity"),numberValue(p,"minimumQuantity"),textValue(p,"unit")||"un",numberValue(p,"unitCost"),textValue(p,"location"),textValue(p,"status")||"Ativo",id,ORG).run();
-  else throw new Error("Tipo de cadastro inválido para edição.");
-  const financialImpact=await automaticFinancialStatements(db,type,id,p);if(financialImpact.length)await db.batch(financialImpact);
-  await audit(db,request,"editou",type,id);return json({ok:true,id,financialEntries:financialImpact.length});
-}
-
-async function sendCommunication(request,env,db,p,id=crypto.randomUUID(),automationKey=""){
-  if(automationKey){const existing=await db.prepare("SELECT id,status FROM communication_logs WHERE organization_id=? AND automation_key=? LIMIT 1").bind(ORG,automationKey).all();if(existing.results[0])return json({ok:true,id:existing.results[0].id,status:existing.results[0].status,duplicate:true})}
-  const channel=textValue(p,"channel",true),recipient=recipientValue(p),subject=textValue(p,"subject"),message=textValue(p,"message",true);let status="Aguardando configuração",providerId="";
-  if(channel==="email"&&env.RESEND_API_KEY&&env.EMAIL_FROM){const response=await fetch("https://api.resend.com/emails",{method:"POST",headers:{Authorization:`Bearer ${env.RESEND_API_KEY}`,"content-type":"application/json"},body:JSON.stringify({from:env.EMAIL_FROM,to:[recipient],subject:subject||"Aviso da sua frota",text:message})});const result=await response.json();if(!response.ok)throw new Error(result.message||"Falha no envio do e-mail.");status="Enviado";providerId=result.id||""}
-  else if(channel==="whatsapp"&&env.WHATSAPP_TOKEN&&env.WHATSAPP_PHONE_NUMBER_ID&&env.WHATSAPP_TEMPLATE_NAME){const version=env.WHATSAPP_API_VERSION||"v23.0",phone=digits(recipient);if(!/^55\d{10,11}$/.test(phone))throw new Error("Para WhatsApp, informe +55, DDD e número.");const response=await fetch(`https://graph.facebook.com/${version}/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`,{method:"POST",headers:{Authorization:`Bearer ${env.WHATSAPP_TOKEN}`,"content-type":"application/json"},body:JSON.stringify({messaging_product:"whatsapp",recipient_type:"individual",to:phone,type:"template",template:{name:env.WHATSAPP_TEMPLATE_NAME,language:{code:env.WHATSAPP_TEMPLATE_LANGUAGE||"pt_BR"},components:[{type:"body",parameters:[{type:"text",text:message}]}]}})});const result=await response.json();if(!response.ok)throw new Error(result.error?.message||"Falha no envio do WhatsApp.");status="Enviado";providerId=result.messages?.[0]?.id||""}
-  await db.prepare("INSERT INTO communication_logs (id,organization_id,channel,recipient,subject,message,status,provider_id,sent_at,automation_key) VALUES (?,?,?,?,?,?,?,?,?,?)").bind(id,ORG,channel,recipient,subject,message,status,providerId,status==="Enviado"?new Date().toISOString():null,automationKey).run();await audit(db,request,status==="Enviado"?"enviou":"preparou",automationKey?"automation":"message",id,channel);return json({ok:true,id,status},status==="Enviado"?201:202);
-}
-
-async function runAutomations(env,db){
-  const rules=(await db.prepare("SELECT * FROM notification_rules WHERE organization_id=? AND active=1 ORDER BY created_at").bind(ORG).all()).results;let prepared=0,duplicates=0;
-  const now=new Date(),today=businessDate(now);
-  for(const rule of rules){
-    const target=businessDate(new Date(now.getTime()+Number(rule.days_before||0)*86400000));let items=[];
-    if(rule.event_type==="Documento vencendo")items=(await db.prepare("SELECT id,description AS label,expiry_date AS due_date FROM documents WHERE organization_id=? AND expiry_date BETWEEN ? AND ? AND status NOT IN ('Pago','Cancelado')").bind(ORG,today,target).all()).results;
-    else if(rule.event_type==="CNH vencendo")items=(await db.prepare("SELECT id,name AS label,cnh_expiry AS due_date FROM drivers WHERE organization_id=? AND cnh_expiry BETWEEN ? AND ? AND status='Ativo'").bind(ORG,today,target).all()).results;
-    else if(rule.event_type==="Manutenção próxima")items=(await db.prepare("SELECT id,service AS label,next_date AS due_date FROM maintenance WHERE organization_id=? AND next_date BETWEEN ? AND ? AND status <> 'Cancelada'").bind(ORG,today,target).all()).results;
-    else if(rule.event_type==="Manutenção por KM")items=(await db.prepare("SELECT maintenance.id,maintenance.service||' · '||trucks.plate AS label,? AS due_date FROM maintenance JOIN trucks ON trucks.id=maintenance.truck_id WHERE maintenance.organization_id=? AND maintenance.status<>'Cancelada' AND maintenance.next_km IS NOT NULL AND maintenance.next_km<=trucks.current_km").bind(today,ORG).all()).results;
-    else if(rule.event_type==="Cronotacógrafo vencendo")items=(await db.prepare("SELECT id,plate AS label,tachograph_expiry AS due_date FROM trucks WHERE organization_id=? AND tachograph_expiry BETWEEN ? AND ? AND status='Ativo'").bind(ORG,today,target).all()).results;
-    else if(rule.event_type==="Seguro vencendo"){const company=(await db.prepare("SELECT rctrc_policy,rctrc_expiry,rcdc_policy,rcdc_expiry,rcv_policy,rcv_expiry FROM organizations WHERE id=?").bind(ORG).all()).results[0]||{};items=[["rctrc","RCTR-C",company.rctrc_policy,company.rctrc_expiry],["rcdc","RC-DC",company.rcdc_policy,company.rcdc_expiry],["rcv","RC-V",company.rcv_policy,company.rcv_expiry]].filter(item=>item[3]&&item[3]>=today&&item[3]<=target).map(item=>({id:item[0],label:`${item[1]}${item[2]?` · ${item[2]}`:""}`,due_date:item[3]}))}
-    else if(rule.event_type==="Conta vencendo")items=(await db.prepare("SELECT id,description AS label,due_date FROM financial_entries WHERE organization_id=? AND due_date BETWEEN ? AND ? AND status IN ('Pendente','Atrasado')").bind(ORG,today,target).all()).results;
-    for(const item of items){const automationKey=[rule.id,rule.event_type,item.id,item.due_date].join(":");const response=await sendCommunication(new Request("https://automation.local/api/automations/run",{method:"POST",headers:{"oai-authenticated-user-email":"automacao@frota-facil"}}),env,db,{channel:rule.channel,recipient:rule.recipient,subject:rule.name,message:`${rule.event_type}: ${item.label}. Prazo: ${item.due_date}.`},crypto.randomUUID(),automationKey);const result=await response.json();if(result.duplicate)duplicates++;else prepared++}
+async function salvarCaminhao(db, p) {
+  const c = {
+    placa: texto(p, "placa", true, "placa").toUpperCase(),
+    nome_motorista: texto(p, "nome_motorista") || "Motorista",
+    nome_ajudante: texto(p, "nome_ajudante") || "Ajudante",
+    valor_motorista: numero(p, "valor_motorista"),
+    valor_ajudante: numero(p, "valor_ajudante"),
+    km_franquia: Math.max(0, Math.round(numero(p, "km_franquia"))),
+  };
+  if (p.id) {
+    await executar(db,
+      "UPDATE cam_caminhoes SET placa=?,nome_motorista=?,nome_ajudante=?,valor_motorista=?,valor_ajudante=?,km_franquia=? WHERE id=?",
+      c.placa, c.nome_motorista, c.nome_ajudante, c.valor_motorista, c.valor_ajudante, c.km_franquia, String(p.id));
+    return { id: p.id };
   }
-  return {ok:true,rules:rules.length,prepared,duplicates,executedAt:new Date().toISOString()};
+  const id = crypto.randomUUID();
+  const ordem = (await todos(db, "SELECT COALESCE(MAX(ordem),0)+1 AS o FROM cam_caminhoes"))[0].o;
+  await executar(db,
+    "INSERT INTO cam_caminhoes (id,placa,nome_motorista,nome_ajudante,valor_motorista,valor_ajudante,km_franquia,ordem) VALUES (?,?,?,?,?,?,?,?)",
+    id, c.placa, c.nome_motorista, c.nome_ajudante, c.valor_motorista, c.valor_ajudante, c.km_franquia, ordem);
+  return { id };
 }
 
-async function whatsappWebhook(request,env){
-  if(request.method==="GET"){const url=new URL(request.url),mode=url.searchParams.get("hub.mode"),token=url.searchParams.get("hub.verify_token"),challenge=url.searchParams.get("hub.challenge");if(mode==="subscribe"&&env.WHATSAPP_WEBHOOK_VERIFY_TOKEN&&token===env.WHATSAPP_WEBHOOK_VERIFY_TOKEN)return new Response(challenge||"",{status:200});return new Response("Verificação inválida",{status:403})}
-  if(request.method!=="POST")return new Response("Método não permitido",{status:405});
-  const payload=await request.json(),statuses=[];for(const entry of payload.entry||[])for(const change of entry.changes||[])for(const item of change.value?.statuses||[])statuses.push(item);
-  const labels={sent:"Enviado",delivered:"Entregue",read:"Lido",failed:"Falhou",deleted:"Excluído"};for(const item of statuses){if(!item.id)continue;await env.DB.prepare("UPDATE communication_logs SET status=? WHERE organization_id=? AND provider_id=?").bind(labels[item.status]||item.status,ORG,item.id).run()}
-  return json({ok:true,updated:statuses.length});
+async function excluirCaminhao(db, id) {
+  const usados = await todos(db, "SELECT COUNT(*) AS n FROM cam_lancamentos WHERE caminhao_id=?", id);
+  if (usados[0].n > 0) throw new Error("Este caminhão tem lançamentos. Exclua os lançamentos antes.");
+  await executar(db, "DELETE FROM cam_caminhoes WHERE id=?", id);
+  return { ok: true };
 }
 
-async function deleteEntity(request,db,url){
-  const type=url.searchParams.get("type"),id=url.searchParams.get("id"),tables={vehicle:"trucks",driver:"drivers",client:"clients",trip:"trips",expense:"expenses",maintenance:"maintenance",fuel:"fuel_records",document:"documents",financial:"financial_entries",inspection:"inspections",occurrence:"occurrences",rule:"notification_rules",message:"communication_logs",financialCategory:"financial_categories",costCenter:"cost_centers",paymentMethod:"payment_methods",helper:"helpers",telemetry:"telemetry_positions",journey:"driver_journeys",tire:"tires",fine:"fines",inventory:"parts_inventory"};
-  if(!tables[type]||!id)throw new Error("Registro inválido.");
-  const found=await db.prepare(`SELECT * FROM ${tables[type]} WHERE id=? AND organization_id=? LIMIT 1`).bind(id,ORG).all();if(!found.results[0])throw new Error("Registro não encontrado.");
-  const statements=[];if(["trip","expense","maintenance","fuel","document","fine"].includes(type))statements.push(db.prepare("DELETE FROM financial_entries WHERE organization_id=? AND source_type=? AND source_id=?").bind(ORG,type,id));if(type==="maintenance"){const record=found.results[0];if(record.part_id&&Number(record.part_quantity)>0)statements.push(db.prepare("UPDATE parts_inventory SET quantity=quantity+? WHERE id=? AND organization_id=?").bind(Number(record.part_quantity),record.part_id,ORG));statements.push(db.prepare("DELETE FROM inventory_movements WHERE organization_id=? AND reference_type='maintenance' AND reference_id=?").bind(ORG,id))}statements.push(db.prepare(`DELETE FROM ${tables[type]} WHERE id=? AND organization_id=?`).bind(id,ORG));await db.batch(statements);await audit(db,request,"excluiu",type,id);return json({ok:true});
+async function salvarLancamento(db, p) {
+  const caminhaoId = texto(p, "caminhao_id", true, "caminhão");
+  const existe = await todos(db, "SELECT id FROM cam_caminhoes WHERE id=?", caminhaoId);
+  if (!existe.length) throw new Error("Caminhão não encontrado.");
+  const pernoite = p.pernoite ? 1 : 0;
+  const kmIni = kmOpcional(p, "km_inicial");
+  let kmFim = kmOpcional(p, "km_final");
+  if (pernoite && kmIni !== null && kmFim === null) kmFim = kmIni;
+  if (kmIni !== null && kmFim !== null && kmFim < kmIni) throw new Error("O KM final não pode ser menor que o KM inicial.");
+  const l = [
+    caminhaoId, dataValida(p, "data"), texto(p, "regiao"), kmIni, kmFim, pernoite,
+    numero(p, "valor_saida", "valor saída"), numero(p, "diesel"), numero(p, "frete", "valor frete"),
+    numero(p, "motorista"), numero(p, "ajudante"), texto(p, "obs"),
+  ];
+  if (p.id) {
+    await executar(db,
+      "UPDATE cam_lancamentos SET caminhao_id=?,data=?,regiao=?,km_inicial=?,km_final=?,pernoite=?,valor_saida=?,diesel=?,frete=?,motorista=?,ajudante=?,obs=? WHERE id=?",
+      ...l, String(p.id));
+    return { id: p.id };
+  }
+  const id = crypto.randomUUID();
+  await executar(db,
+    "INSERT INTO cam_lancamentos (caminhao_id,data,regiao,km_inicial,km_final,pernoite,valor_saida,diesel,frete,motorista,ajudante,obs,id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    ...l, id);
+  return { id };
 }
-async function uploadFile(request,env){
-  if(!env.BUCKET)return json({error:"O armazenamento de anexos ainda não está configurado."},503);
-  const type=request.headers.get("content-type")||"application/octet-stream",allowed=["image/jpeg","image/png","image/webp","application/pdf"];if(!allowed.includes(type))return json({error:"Envie uma imagem JPG, PNG, WebP ou um PDF."},400);
-  const data=await request.arrayBuffer();if(!data.byteLength||data.byteLength>12*1024*1024)return json({error:"O anexo deve ter até 12 MB."},400);
-  const original=decodeURIComponent(request.headers.get("x-file-name")||"anexo").replace(/[^a-zA-Z0-9._-]/g,"-").slice(-100),key=`${ORG}/${crypto.randomUUID()}-${original}`;await env.BUCKET.put(key,data,{httpMetadata:{contentType:type},customMetadata:{uploadedBy:userEmail(request)}});return json({ok:true,key,url:`/api/files/${encodeURIComponent(key)}`},201);
-}
-async function serveFile(request,env,url){
-  if(!env.BUCKET)return new Response("Armazenamento indisponível",{status:503});const key=decodeURIComponent(url.pathname.slice("/api/files/".length));if(!key.startsWith(`${ORG}/`))return new Response("Anexo inválido",{status:403});const object=await env.BUCKET.get(key);if(!object)return new Response("Anexo não encontrado",{status:404});const headers=new Headers();object.writeHttpMetadata(headers);headers.set("etag",object.httpEtag);headers.set("cache-control","private, max-age=3600");return new Response(object.body,{headers});
-}
-async function api(request,env){if(!env.DB)return json({error:"O banco de dados ainda não está disponível."},500);try{const url=new URL(request.url);if(request.method==="GET")return json(await getData(env.DB,env));if(request.method==="POST")return await createEntity(request,env,env.DB);if(request.method==="PUT")return await updateEntity(request,env,env.DB);if(request.method==="DELETE")return await deleteEntity(request,env.DB,url);return json({error:"Método não permitido."},405)}catch(error){return json({error:errorMessage(error)},400)}}
 
-export default {async fetch(request,env){const url=new URL(request.url);if(url.pathname==="/api/data")return api(request,env);if(url.pathname==="/api/files"&&request.method==="POST"){try{return await uploadFile(request,env)}catch(error){return json({error:errorMessage(error)},400)}}if(url.pathname.startsWith("/api/files/")&&request.method==="GET")return serveFile(request,env,url);if(url.pathname==="/api/whatsapp/webhook"){if(!env.DB)return json({error:"O banco de dados ainda não está disponível."},500);try{return await whatsappWebhook(request,env)}catch(error){return json({error:errorMessage(error)},400)}}if(url.pathname==="/api/automations/run"&&request.method==="POST"){if(!env.DB)return json({error:"O banco de dados ainda não está disponível."},500);try{return json(await runAutomations(env,env.DB))}catch(error){return json({error:errorMessage(error)},400)}}if(url.pathname!=="/")return new Response("Página não encontrada",{status:404});return new Response(page,{headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store"}})}};
+async function salvarLinha(db, p) {
+  const nome = texto(p, "nome", true, "nome");
+  if (p.id) {
+    await executar(db, "UPDATE fin_linhas SET nome=? WHERE id=?", nome, String(p.id));
+    return { id: p.id };
+  }
+  const ano = anoValido(p.ano);
+  const grupo = String(p.grupo || "");
+  if (!GRUPOS.includes(grupo)) throw new Error("Grupo inválido.");
+  const ordem = (await todos(db, "SELECT COALESCE(MAX(ordem),0)+1 AS o FROM fin_linhas WHERE ano=? AND grupo=?", ano, grupo))[0].o;
+  const id = crypto.randomUUID();
+  await executar(db, "INSERT INTO fin_linhas (id,ano,grupo,nome,ordem) VALUES (?,?,?,?,?)", id, ano, grupo, nome, ordem);
+  return { id };
+}
+
+async function excluirLinha(db, id) {
+  await db.batch([
+    db.prepare("DELETE FROM fin_valores WHERE linha_id=?").bind(id),
+    db.prepare("DELETE FROM fin_linhas WHERE id=?").bind(id),
+  ]);
+  return { ok: true };
+}
+
+function mesValido(v) {
+  const mes = Number(v);
+  if (!Number.isInteger(mes) || mes < 1 || mes > 12) throw new Error("Mês inválido.");
+  return mes;
+}
+
+async function salvarValor(db, p) {
+  const linhaId = texto(p, "linha_id", true);
+  const mes = mesValido(p.mes);
+  const valor = numero(p, "valor");
+  if (valor === 0) await executar(db, "DELETE FROM fin_valores WHERE linha_id=? AND mes=?", linhaId, mes);
+  else await executar(db,
+    "INSERT INTO fin_valores (linha_id,mes,valor) VALUES (?,?,?) ON CONFLICT(linha_id,mes) DO UPDATE SET valor=excluded.valor",
+    linhaId, mes, valor);
+  return { ok: true };
+}
+
+// Repete o valor de um mês nos meses seguintes até dezembro (para contas fixas).
+async function repetirValor(db, p) {
+  const linhaId = texto(p, "linha_id", true);
+  const mes = mesValido(p.mes);
+  const atual = await todos(db, "SELECT valor FROM fin_valores WHERE linha_id=? AND mes=?", linhaId, mes);
+  const valor = atual.length ? atual[0].valor : 0;
+  const comandos = [];
+  for (let m = mes + 1; m <= 12; m++) {
+    comandos.push(valor === 0
+      ? db.prepare("DELETE FROM fin_valores WHERE linha_id=? AND mes=?").bind(linhaId, m)
+      : db.prepare("INSERT INTO fin_valores (linha_id,mes,valor) VALUES (?,?,?) ON CONFLICT(linha_id,mes) DO UPDATE SET valor=excluded.valor").bind(linhaId, m, valor));
+  }
+  if (comandos.length) await db.batch(comandos);
+  return { ok: true };
+}
+
+async function lerCorpo(request) {
+  try { return await request.json(); } catch { throw new Error("Dados inválidos."); }
+}
+
+async function api(request, env, url) {
+  const db = env.DB;
+  if (!db) return json({ error: "O banco de dados ainda não está disponível." }, 500);
+  const rota = url.pathname.slice("/api/".length);
+  const metodo = request.method;
+  try {
+    if (rota === "dados" && metodo === "GET") return json(await dados(db, url));
+    if (rota === "caminhao" && metodo === "POST") return json(await salvarCaminhao(db, await lerCorpo(request)));
+    if (rota === "caminhao" && metodo === "DELETE") return json(await excluirCaminhao(db, url.searchParams.get("id") || ""));
+    if (rota === "lancamento" && metodo === "POST") return json(await salvarLancamento(db, await lerCorpo(request)));
+    if (rota === "lancamento" && metodo === "DELETE") {
+      await executar(db, "DELETE FROM cam_lancamentos WHERE id=?", url.searchParams.get("id") || "");
+      return json({ ok: true });
+    }
+    if (rota === "linha" && metodo === "POST") return json(await salvarLinha(db, await lerCorpo(request)));
+    if (rota === "linha" && metodo === "DELETE") return json(await excluirLinha(db, url.searchParams.get("id") || ""));
+    if (rota === "valor" && metodo === "POST") return json(await salvarValor(db, await lerCorpo(request)));
+    if (rota === "valor/repetir" && metodo === "POST") return json(await repetirValor(db, await lerCorpo(request)));
+    return json({ error: "Rota não encontrada." }, 404);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Erro inesperado.";
+    if (/no such table/i.test(msg)) return json({ error: "A atualização do banco ainda não foi aplicada." }, 500);
+    return json({ error: msg }, 400);
+  }
+}
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    if (url.pathname.startsWith("/api/")) return api(request, env, url);
+    return new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+  },
+};
