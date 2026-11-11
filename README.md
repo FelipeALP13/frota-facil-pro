@@ -8,6 +8,10 @@ Sistema para controlar 3 caminhões e o financeiro pessoal, no mesmo formato das
   - O KM excedente é calculado sozinho: KM rodado menos a franquia do caminhão (130 km por padrão). Marcando **Pernoite**, aparece "PERNOITE".
   - Um lançamento novo já vem com o último KM do caminhão, o último valor de saída e as diárias do motorista e do ajudante.
   - Em **Editar caminhão** dá para mudar placa, nomes do motorista e do ajudante (aparecem nas colunas), diárias e franquia de KM.
+  - Se num dia outra pessoa dirigiu ou ajudou, troque o nome no lançamento. Na tabela o nome aparece ao lado do valor.
+- **Fechar quinzena** (botão em cada quinzena e no Financeiro): soma o frete de todos os caminhões e o que cada motorista e ajudante tem a receber, e grava no Financeiro com um clique.
+  - Mostra o que já está lançado e avisa antes de trocar um valor diferente. Fechar de novo não duplica nada.
+  - Se o nome da pessoa for diferente do nome da linha (ex.: Francisco → "Chico"), escolha a linha uma vez; o sistema lembra nas próximas.
 - **Financeiro**: igual à planilha de controle financeiro. Entradas por quinzena, despesas de 01 a 15 e de 16 a 31, totais, saldo de cada quinzena, saldo do mês e acumulado do ano.
   - No computador mostra o ano inteiro; no celular mostra um mês por vez.
   - Clique no nome de uma linha para renomear, excluir ou **repetir o valor até dezembro** (contas fixas).

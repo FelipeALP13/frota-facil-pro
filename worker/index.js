@@ -115,8 +115,15 @@ async function excluirCaminhao(db, id) {
 
 async function salvarLancamento(db, p) {
   const caminhaoId = texto(p, "caminhao_id", true, "caminhão");
-  const existe = await todos(db, "SELECT id FROM cam_caminhoes WHERE id=?", caminhaoId);
+  const existe = await todos(db, "SELECT id,nome_motorista,nome_ajudante FROM cam_caminhoes WHERE id=?", caminhaoId);
   if (!existe.length) throw new Error("Caminhão não encontrado.");
+  // Se for o motorista/ajudante padrão do caminhão, guarda vazio: assim acompanha se o nome do caminhão mudar.
+  const quem = (chave, padrao) => {
+    const v = texto(p, chave);
+    return v.toLowerCase() === String(padrao).toLowerCase() ? "" : v;
+  };
+  const nomeMot = quem("nome_motorista", existe[0].nome_motorista);
+  const nomeAju = quem("nome_ajudante", existe[0].nome_ajudante);
   const pernoite = p.pernoite ? 1 : 0;
   const kmIni = kmOpcional(p, "km_inicial");
   let kmFim = kmOpcional(p, "km_final");
@@ -125,17 +132,17 @@ async function salvarLancamento(db, p) {
   const l = [
     caminhaoId, dataValida(p, "data"), texto(p, "regiao"), kmIni, kmFim, pernoite,
     numero(p, "valor_saida", "valor saída"), numero(p, "diesel"), numero(p, "frete", "valor frete"),
-    numero(p, "motorista"), numero(p, "ajudante"), texto(p, "obs"),
+    numero(p, "motorista"), numero(p, "ajudante"), texto(p, "obs"), nomeMot, nomeAju,
   ];
   if (p.id) {
     await executar(db,
-      "UPDATE cam_lancamentos SET caminhao_id=?,data=?,regiao=?,km_inicial=?,km_final=?,pernoite=?,valor_saida=?,diesel=?,frete=?,motorista=?,ajudante=?,obs=? WHERE id=?",
+      "UPDATE cam_lancamentos SET caminhao_id=?,data=?,regiao=?,km_inicial=?,km_final=?,pernoite=?,valor_saida=?,diesel=?,frete=?,motorista=?,ajudante=?,obs=?,nome_motorista=?,nome_ajudante=? WHERE id=?",
       ...l, String(p.id));
     return { id: p.id };
   }
   const id = crypto.randomUUID();
   await executar(db,
-    "INSERT INTO cam_lancamentos (caminhao_id,data,regiao,km_inicial,km_final,pernoite,valor_saida,diesel,frete,motorista,ajudante,obs,id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    "INSERT INTO cam_lancamentos (caminhao_id,data,regiao,km_inicial,km_final,pernoite,valor_saida,diesel,frete,motorista,ajudante,obs,nome_motorista,nome_ajudante,id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     ...l, id);
   return { id };
 }
@@ -196,6 +203,39 @@ async function repetirValor(db, p) {
   return { ok: true };
 }
 
+// Fechamento da quinzena: grava de uma vez os valores escolhidos nas linhas do financeiro.
+// Cada item tem linha_id (linha existente) ou nova_linha (nome, cria no grupo indicado).
+async function fecharQuinzena(db, p) {
+  const ano = anoValido(p.ano);
+  const mes = mesValido(p.mes);
+  const itens = Array.isArray(p.itens) ? p.itens : [];
+  if (!itens.length) throw new Error("Nenhum valor marcado.");
+  if (itens.length > 60) throw new Error("Itens demais.");
+  const linhasDoAno = new Set((await todos(db, "SELECT id FROM fin_linhas WHERE ano=?", ano)).map((l) => l.id));
+  const ordens = {};
+  for (const g of GRUPOS) ordens[g] = (await todos(db, "SELECT COALESCE(MAX(ordem),0) AS o FROM fin_linhas WHERE ano=? AND grupo=?", ano, g))[0].o;
+  const comandos = [];
+  for (const item of itens) {
+    const valor = numero(item, "valor");
+    let linhaId = String(item.linha_id || "");
+    if (!linhaId) {
+      const nome = texto(item, "nova_linha", true, "nome da linha");
+      const grupo = String(item.grupo || "");
+      if (!GRUPOS.includes(grupo)) throw new Error("Grupo inválido.");
+      linhaId = crypto.randomUUID();
+      ordens[grupo] += 1;
+      comandos.push(db.prepare("INSERT INTO fin_linhas (id,ano,grupo,nome,ordem) VALUES (?,?,?,?,?)").bind(linhaId, ano, grupo, nome, ordens[grupo]));
+    } else if (!linhasDoAno.has(linhaId)) {
+      throw new Error("Linha do financeiro não encontrada.");
+    }
+    comandos.push(valor === 0
+      ? db.prepare("DELETE FROM fin_valores WHERE linha_id=? AND mes=?").bind(linhaId, mes)
+      : db.prepare("INSERT INTO fin_valores (linha_id,mes,valor) VALUES (?,?,?) ON CONFLICT(linha_id,mes) DO UPDATE SET valor=excluded.valor").bind(linhaId, mes, valor));
+  }
+  await db.batch(comandos);
+  return { ok: true, gravados: itens.length };
+}
+
 async function lerCorpo(request) {
   try { return await request.json(); } catch { throw new Error("Dados inválidos."); }
 }
@@ -218,6 +258,7 @@ async function api(request, env, url) {
     if (rota === "linha" && metodo === "DELETE") return json(await excluirLinha(db, url.searchParams.get("id") || ""));
     if (rota === "valor" && metodo === "POST") return json(await salvarValor(db, await lerCorpo(request)));
     if (rota === "valor/repetir" && metodo === "POST") return json(await repetirValor(db, await lerCorpo(request)));
+    if (rota === "fechar" && metodo === "POST") return json(await fecharQuinzena(db, await lerCorpo(request)));
     return json({ error: "Rota não encontrada." }, 404);
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Erro inesperado.";

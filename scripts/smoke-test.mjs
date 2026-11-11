@@ -101,5 +101,28 @@ assert.equal((await call("DELETE", `linha?id=${seguro}`)).status, 200);
 r = await call("GET", "dados?ano=2026");
 assert.equal(r.data.valores.filter((v) => v.linha_id === seguro).length, 0);
 
+// Quem trabalhou: nome padrão do caminhão fica vazio; substituto fica gravado
+await call("POST", "caminhao", { id: "cam2", placa: "LLF9969", nome_motorista: "Victor", nome_ajudante: "Gabriel", valor_motorista: 170, valor_ajudante: 100, km_franquia: 130 });
+await call("POST", "lancamento", { caminhao_id: "cam2", data: "2026-05-04", frete: 900, motorista: 170, ajudante: 100, nome_motorista: "victor", nome_ajudante: "Gabriel" });
+await call("POST", "lancamento", { caminhao_id: "cam2", data: "2026-05-05", frete: 800, motorista: 170, ajudante: 100, nome_motorista: "Pai", nome_ajudante: "Gabriel" });
+r = await call("GET", "dados?ano=2026");
+const maio = r.data.lancamentos.filter((l) => l.data.startsWith("2026-05"));
+assert.deepEqual(maio.map((l) => l.nome_motorista), ["", "Pai"]);
+
+// Fechar quinzena: grava em linha existente e cria linha nova, de uma vez
+const rec1 = r.data.linhas.find((l) => l.grupo === "rec1").id;
+r = await call("POST", "fechar", { ano: 2026, mes: 5, itens: [{ linha_id: rec1, valor: 1700 }, { nova_linha: "Gabriel", grupo: "desp1", valor: 200 }] });
+assert.equal(r.status, 200);
+r = await call("POST", "fechar", { ano: 2026, mes: 5, itens: [{ linha_id: rec1, valor: 1700 }] });
+assert.equal(r.status, 200, "fechar de novo só sobrescreve");
+r = await call("GET", "dados?ano=2026");
+assert.equal(r.data.valores.filter((v) => v.linha_id === rec1 && v.mes === 5)[0].valor, 1700);
+const gabriel = r.data.linhas.find((l) => l.nome === "Gabriel" && l.grupo === "desp1");
+assert.ok(gabriel);
+assert.equal(r.data.valores.find((v) => v.linha_id === gabriel.id && v.mes === 5).valor, 200);
+assert.equal((await call("POST", "fechar", { ano: 2026, mes: 5, itens: [] })).status, 400);
+assert.equal((await call("POST", "fechar", { ano: 2026, mes: 5, itens: [{ linha_id: "outra", valor: 1 }] })).status, 400);
+assert.equal((await call("POST", "fechar", { ano: 2026, mes: 5, itens: [{ nova_linha: "X", grupo: "errado", valor: 1 }] })).status, 400);
+
 assert.equal((await call("GET", "nada")).status, 404);
 console.log("Teste OK: caminhões, lançamentos, financeiro e validações.");

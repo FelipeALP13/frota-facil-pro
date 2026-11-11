@@ -23,6 +23,11 @@ tbody tr.lanc{cursor:pointer}tbody tr.lanc:hover{background:#f7fafb}tr.total td{
 .fin tr.secao td{background:var(--azul);color:#fff;font-weight:800;padding:7px 10px;font-size:12px;letter-spacing:.04em}.fin tr.ref td{color:var(--suave);font-style:italic;font-size:13px}.fin tr.saldo td{font-weight:800;background:#fafcfd}
 .nome-linha{border:0;background:none;padding:0;text-align:left;font-weight:600;text-decoration:underline dotted var(--suave);text-underline-offset:3px}
 .add{border:0;background:none;color:var(--azul2);font-weight:700;padding:4px 0}
+.botoes{display:flex;gap:8px}small.outro{font-size:11px;font-weight:800;color:var(--laranja)}
+.fecha{grid-column:1/-1;display:grid;gap:8px}.fecha-item{display:grid;grid-template-columns:auto 1fr 120px;gap:6px 10px;align-items:center;border:1px solid var(--linha);border-radius:10px;padding:10px}
+.fecha-item b{font-size:15px}.fecha-item small{color:var(--suave)}.fecha-item input[type=checkbox]{width:20px;height:20px}.fecha-item .val{border:1px solid var(--linha);border-radius:8px;padding:7px;text-align:right;width:100%}
+.fecha-item select{grid-column:2/-1;border:1px solid var(--linha);border-radius:8px;padding:7px;background:#fff;font-size:14px}.fecha-item .atual{grid-column:2/-1;font-size:12px;color:var(--suave)}
+.fecha-item .atual.aviso{color:var(--vermelho);font-weight:700}.fecha h4{margin:6px 0 0;font-size:13px;color:var(--suave);text-transform:uppercase}
 .fab{display:none}
 dialog{border:0;border-radius:14px;padding:0;width:min(560px,96vw);max-height:92vh}dialog::backdrop{background:#0c2f4799}
 dialog form{padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px}dialog h3{grid-column:1/-1;margin:0 0 4px}
@@ -104,10 +109,10 @@ function telaCaminhoes(){
 }
 function excedente(c,l){if(l.pernoite)return '<span class="pernoite">PERNOITE</span>';if(l.km_inicial==null||l.km_final==null)return "";return km(l.km_final-l.km_inicial-c.km_franquia)}
 function blocoQuinzena(c,lista,titulo){
-  var h='<section class="bloco"><h2><span>'+titulo+'</span><button class="btn prim so-pc" data-novo="'+(titulo==="01 a 15"?1:16)+'">+ Lançar dia</button></h2><div class="rolar"><table class="lancs"><thead><tr><th>Data</th><th class="txt">Região</th><th>KM inicial</th><th>KM final</th><th>KM exced.</th><th>Saída</th><th>Diesel</th><th>Frete</th><th>'+esc(c.nome_motorista)+"</th><th>"+esc(c.nome_ajudante)+'</th><th class="txt">Obs</th></tr></thead><tbody>';
+  var h='<section class="bloco"><h2><span>'+titulo+'</span><span class="botoes"><button class="btn" data-fechar="'+(titulo==="01 a 15"?1:2)+'">Fechar quinzena</button><button class="btn prim so-pc" data-novo="'+(titulo==="01 a 15"?1:16)+'">+ Lançar dia</button></span></h2><div class="rolar"><table class="lancs"><thead><tr><th>Data</th><th class="txt">Região</th><th>KM inicial</th><th>KM final</th><th>KM exced.</th><th>Saída</th><th>Diesel</th><th>Frete</th><th>'+esc(c.nome_motorista)+"</th><th>"+esc(c.nome_ajudante)+'</th><th class="txt">Obs</th></tr></thead><tbody>';
   if(!lista.length)h+='<tr class="vazio"><td colspan="11">Nenhum lançamento nesta quinzena.</td></tr>';
   lista.forEach(function(l){var dt=l.data.slice(8)+"/"+l.data.slice(5,7);
-    h+='<tr class="lanc" data-id="'+esc(l.id)+'"><td class="cab">'+dt+' <span class="so-cel"></span></td><td class="txt" data-r="Região">'+esc(l.regiao)+'</td><td data-r="KM ini">'+km(l.km_inicial)+'</td><td data-r="KM fim">'+km(l.km_final)+'</td><td data-r="Exced.">'+excedente(c,l)+'</td><td data-r="Saída">'+dinheiro(l.valor_saida)+'</td><td data-r="Diesel">'+dinheiro(l.diesel)+'</td><td data-r="Frete"><b>'+dinheiro(l.frete)+'</b></td><td data-r="'+esc(c.nome_motorista)+'">'+dinheiro(l.motorista)+'</td><td data-r="'+esc(c.nome_ajudante)+'">'+dinheiro(l.ajudante)+'</td><td class="txt'+(l.obs?"":" vz")+'" data-r="Obs">'+esc(l.obs)+"</td></tr>"});
+    h+='<tr class="lanc" data-id="'+esc(l.id)+'"><td class="cab">'+dt+' <span class="so-cel"></span></td><td class="txt" data-r="Região">'+esc(l.regiao)+'</td><td data-r="KM ini">'+km(l.km_inicial)+'</td><td data-r="KM fim">'+km(l.km_final)+'</td><td data-r="Exced.">'+excedente(c,l)+'</td><td data-r="Saída">'+dinheiro(l.valor_saida)+'</td><td data-r="Diesel">'+dinheiro(l.diesel)+'</td><td data-r="Frete"><b>'+dinheiro(l.frete)+'</b></td><td data-r="'+esc(c.nome_motorista)+'">'+dinheiro(l.motorista)+(l.nome_motorista?' <small class="outro">'+esc(l.nome_motorista)+"</small>":"")+'</td><td data-r="'+esc(c.nome_ajudante)+'">'+dinheiro(l.ajudante)+(l.nome_ajudante?' <small class="outro">'+esc(l.nome_ajudante)+"</small>":"")+'</td><td class="txt'+(l.obs?"":" vz")+'" data-r="Obs">'+esc(l.obs)+"</td></tr>"});
   h+='<tr class="total"><td>Total ('+lista.length+(lista.length===1?" dia)":" dias)")+"</td><td class=\"vz\"></td><td class=\"vz\"></td><td class=\"vz\"></td><td class=\"vz\"></td><td class=\"vz\"></td><td data-r=\"Diesel\">"+dinheiro(soma(lista,"diesel"))+'</td><td data-r="Frete">'+dinheiro(soma(lista,"frete"))+'</td><td data-r="'+esc(c.nome_motorista)+'">'+dinheiro(soma(lista,"motorista"))+'</td><td data-r="'+esc(c.nome_ajudante)+'">'+dinheiro(soma(lista,"ajudante"))+'</td><td class="vz"></td></tr>';
   return h+"</tbody></table></div></section>";
 }
@@ -117,10 +122,14 @@ function ligarCam(){
   var n=$("#novoCam");if(n)n.onclick=function(){formCaminhao(null)};
   var e=$("#editCam");if(e)e.onclick=function(){formCaminhao(caminhao(st.cam))};
   document.querySelectorAll("[data-novo]").forEach(function(b){b.onclick=function(){formLancamento(null,Number(b.dataset.novo))}});
+  document.querySelectorAll("[data-fechar]").forEach(function(b){b.onclick=function(){fechamento(st.mes,Number(b.dataset.fechar))}});
   document.querySelectorAll("tr.lanc").forEach(function(tr){tr.onclick=function(){formLancamento(st.d.lancamentos.find(function(l){return l.id===tr.dataset.id}))}});
 }
 function campo(rotulo,nome,valor,extra){return '<label'+(extra&&extra.inteiro?' class="inteiro"':"")+">"+rotulo+'<input name="'+nome+'" value="'+esc(valor==null?"":valor)+'"'+(extra&&extra.attr?" "+extra.attr:"")+"></label>"}
 function dinheiroCampo(v){return v?String(Number(v).toFixed(2)).replace(".",","):""}
+function quemMot(c,l){return l.nome_motorista||c.nome_motorista}
+function quemAju(c,l){return l.nome_ajudante||c.nome_ajudante}
+function pessoasConhecidas(){var s=new Set();st.d.caminhoes.forEach(function(c){s.add(c.nome_motorista);s.add(c.nome_ajudante)});st.d.lancamentos.forEach(function(l){if(l.nome_motorista)s.add(l.nome_motorista);if(l.nome_ajudante)s.add(l.nome_ajudante)});return Array.from(s).filter(Boolean).sort()}
 function ultimoDoCaminhao(camId){var l=st.d.lancamentos.filter(function(x){return x.caminhao_id===camId});return l.length?l[l.length-1]:null}
 function formLancamento(l,dia){
   var c=caminhao(l?l.caminhao_id:st.cam),novo=!l;
@@ -135,7 +144,9 @@ function formLancamento(l,dia){
     '<div class="info" id="kmInfo"></div>'+
     campo("Valor saída","valor_saida",dinheiroCampo(l.valor_saida),{attr:'inputmode="decimal"'})+campo("Diesel","diesel",dinheiroCampo(l.diesel),{attr:'inputmode="decimal"'})+
     campo("Valor frete","frete",dinheiroCampo(l.frete),{attr:'inputmode="decimal"',inteiro:true})+
-    campo(esc(c.nome_motorista),"motorista",dinheiroCampo(l.motorista),{attr:'inputmode="decimal"'})+campo(esc(c.nome_ajudante),"ajudante",dinheiroCampo(l.ajudante),{attr:'inputmode="decimal"'})+
+    campo("Motorista","nome_motorista",quemMot(c,l),{attr:'list="pessoas" autocomplete="off"'})+campo("Diária do motorista","motorista",dinheiroCampo(l.motorista),{attr:'inputmode="decimal"'})+
+    campo("Ajudante","nome_ajudante",quemAju(c,l),{attr:'list="pessoas" autocomplete="off"'})+campo("Diária do ajudante","ajudante",dinheiroCampo(l.ajudante),{attr:'inputmode="decimal"'})+
+    '<datalist id="pessoas">'+pessoasConhecidas().map(function(n){return '<option value="'+esc(n)+'">'}).join("")+"</datalist>"+
     campo("Obs","obs",l.obs,{inteiro:true})+
     '<datalist id="regioes">'+Array.from(new Set(st.d.lancamentos.map(function(x){return x.regiao}).filter(Boolean))).map(function(r){return '<option value="'+esc(r)+'">'}).join("")+"</datalist>"+
     '<div class="acoes">'+(novo?"":'<button type="button" class="btn perigo" id="excluir">Excluir</button>')+'<button type="button" class="btn" id="cancelar">Cancelar</button><button class="btn prim">Salvar</button></div></form>';
@@ -146,7 +157,7 @@ function formLancamento(l,dia){
   f.pernoite.onchange=atualizaKm;f.km_inicial.oninput=atualizaKm;f.km_final.oninput=atualizaKm;atualizaKm();
   $("#cancelar").onclick=function(){j.close()};
   if(!novo)$("#excluir").onclick=function(){if(!confirm("Excluir este lançamento?"))return;api("DELETE","lancamento?id="+encodeURIComponent(l.id)).then(function(){j.close();aviso("Lançamento excluído");carregar()}).catch(function(e){aviso(e.message,true)})};
-  f.onsubmit=function(ev){ev.preventDefault();var corpo={id:l.id,caminhao_id:c.id,data:f.data.value,regiao:f.regiao.value,pernoite:f.pernoite.checked,km_inicial:f.km_inicial.value,km_final:f.pernoite.checked?f.km_inicial.value:f.km_final.value,obs:f.obs.value};
+  f.onsubmit=function(ev){ev.preventDefault();var corpo={id:l.id,caminhao_id:c.id,data:f.data.value,regiao:f.regiao.value,pernoite:f.pernoite.checked,nome_motorista:f.nome_motorista.value,nome_ajudante:f.nome_ajudante.value,km_inicial:f.km_inicial.value,km_final:f.pernoite.checked?f.km_inicial.value:f.km_final.value,obs:f.obs.value};
     var ok=true;["valor_saida","diesel","frete","motorista","ajudante"].forEach(function(k){var n=lerNumero(f[k].value);if(isNaN(n))ok=false;corpo[k]=n});
     if(!ok){aviso("Confira os valores em dinheiro.",true);return}
     api("POST","lancamento",corpo).then(function(){j.close();aviso("Salvo");var m=Number(corpo.data.slice(5,7)),a=Number(corpo.data.slice(0,4));st.mes=m;if(a!==st.ano)st.ano=a;carregar()}).catch(function(e){aviso(e.message,true)})};
@@ -178,7 +189,7 @@ function saldos(mes){var q1=totalGrupo("rec1",mes)-totalGrupo("desp1",mes),q2=to
 function acumulado(mes){var s=0;for(var m=1;m<=mes;m++)s+=saldos(m).mes;return s}
 function telaFinanceiro(){
   var meses=pc()?[1,2,3,4,5,6,7,8,9,10,11,12]:[st.mes];
-  var h='<div class="barra">'+(pc()?'<span class="dica" style="margin:0">Clique num valor para editar. Clique no nome da linha para renomear, repetir o valor ou excluir.</span>':seletorMes())+"</div>";
+  var h='<div class="barra">'+(pc()?'<span class="dica" style="margin:0">Clique num valor para editar. Clique no nome da linha para renomear, repetir o valor ou excluir.</span>':"")+'<button class="btn" id="fecharFin">Fechar quinzena</button>'+(pc()?"":seletorMes())+"</div>";
   h+='<section class="bloco"><div class="rolar"><table class="fin"><thead><tr><th></th>'+meses.map(function(m){return "<th>"+(pc()?CURTO[m-1]:MESES[m-1])+"</th>"}).join("")+"</tr></thead><tbody>";
   function linhaValores(l){var r='<tr><td><button class="nome-linha" data-linha="'+esc(l.id)+'">'+esc(l.nome)+"</button></td>";
     meses.forEach(function(m){var v=valor(l.id,m);r+='<td><input inputmode="decimal" data-l="'+esc(l.id)+'" data-m="'+m+'" value="'+(v?dinheiro(v):"")+'" aria-label="'+esc(l.nome)+" "+MESES[m-1]+'"></td>'});return r+"</tr>"}
@@ -206,6 +217,8 @@ function telaFinanceiro(){
   h+=linhaCalc("Acumulado no ano",acumulado,"saldo");
   h+="</tbody></table></div></section>";
   $("#tela").innerHTML=h;ligarMes();
+  // Padrão: a quinzena que acabou de terminar.
+  $("#fecharFin").onclick=function(){if(hoje.getFullYear()!==st.ano){fechamento(st.mes,1);return}var m=hoje.getMonth()+1;if(hoje.getDate()>15)fechamento(m,1);else if(m>1)fechamento(m-1,2);else fechamento(1,1)};
   document.querySelectorAll(".fin input").forEach(function(inp){
     inp.onfocus=function(){var v=valor(inp.dataset.l,Number(inp.dataset.m));inp.value=v?dinheiroCampo(v):"";inp.select()};
     inp.onkeydown=function(e){if(e.key==="Enter"){e.preventDefault();inp.blur()}};
@@ -228,6 +241,62 @@ function formLinha(l){
   $("#repetir").onclick=function(){var m=Number(f.mes.value);if(!confirm("Repetir "+dinheiro(valor(l.id,m))+" de "+MESES[m-1]+" nos meses seguintes até dezembro?"))return;api("POST","valor/repetir",{linha_id:l.id,mes:m}).then(function(){j.close();aviso("Valor repetido");carregar()}).catch(function(e){aviso(e.message,true)})};
   $("#excluir").onclick=function(){if(!confirm("Excluir a linha "+l.nome+" e todos os valores dela em "+st.ano+"?"))return;api("DELETE","linha?id="+encodeURIComponent(l.id)).then(function(){j.close();aviso("Linha excluída");carregar()}).catch(function(e){aviso(e.message,true)})};
   f.onsubmit=function(ev){ev.preventDefault();api("POST","linha",{id:l.id,nome:f.nome.value}).then(function(){j.close();carregar()}).catch(function(e){aviso(e.message,true)})};
+  j.showModal();
+}
+
+/* ---------- FECHAR QUINZENA ---------- */
+function normal(s){return String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().trim()}
+// Lembra em qual linha do financeiro cada pessoa foi lançada (ex.: Francisco -> Chico).
+function destinos(){try{return JSON.parse(localStorage.getItem("frota-destinos")||"{}")}catch(e){return {}}}
+function lembrarDestino(grupo,pessoa,linhaNome){try{var d=destinos();d[grupo+"|"+normal(pessoa)]=normal(linhaNome);localStorage.setItem("frota-destinos",JSON.stringify(d))}catch(e){}}
+function itensFechamento(mes,q){
+  var lista=st.d.lancamentos.filter(function(l){var dia=Number(l.data.slice(8));return Number(l.data.slice(5,7))===mes&&(q===1?dia<=15:dia>15)});
+  var rec=q===1?"rec1":"rec2",desp=q===1?"desp1":"desp2",itens=[];
+  var porCam=st.d.caminhoes.map(function(c){var v=soma(lista.filter(function(l){return l.caminhao_id===c.id}),"frete");return v?c.placa+" "+dinheiro(v):""}).filter(Boolean).join(" · ");
+  var recs=linhasDe(rec);
+  itens.push({tipo:"Frete dos caminhões",nome:"Receita",detalhe:porCam||"sem lançamentos",valor:Math.round(soma(lista,"frete")*100)/100,grupo:rec,linha:recs.length?recs[0].id:"",nova:"Receita "+(q===1?"01 a 15":"16 a 31")});
+  var pessoas={},ordem=[];
+  lista.forEach(function(l){var c=caminhao(l.caminhao_id);if(!c)return;
+    [[quemMot(c,l),l.motorista],[quemAju(c,l),l.ajudante]].forEach(function(par){var v=Number(par[1]||0);if(!v)return;var k=normal(par[0]);
+      if(!pessoas[k]){pessoas[k]={nome:par[0],valor:0,dias:0};ordem.push(k)}pessoas[k].valor+=v;pessoas[k].dias++})});
+  var desps=linhasDe(desp),lembrado=destinos();
+  ordem.forEach(function(k){var p=pessoas[k],alvo=lembrado[desp+"|"+k];
+    var achou=(alvo&&desps.find(function(l){return normal(l.nome)===alvo}))||desps.find(function(l){return normal(l.nome)===k});
+    itens.push({tipo:"Pagamento",nome:p.nome,detalhe:p.dias+(p.dias===1?" diária":" diárias"),valor:Math.round(p.valor*100)/100,grupo:desp,linha:achou?achou.id:"",nova:p.nome})});
+  return {itens:itens,dias:lista.length};
+}
+function fechamento(mes,q){
+  var j=$("#janela"),dados=itensFechamento(mes,q);
+  function opcoes(it){var h=linhasDe(it.grupo).map(function(l){return '<option value="'+esc(l.id)+'"'+(l.id===it.linha?" selected":"")+">"+esc(l.nome)+"</option>"}).join("");
+    return h+'<option value=""'+(it.linha?"":" selected")+">Criar linha nova: "+esc(it.nova)+"</option>"}
+  var h='<form method="dialog"><h3>Fechar quinzena</h3>'+
+    '<label>Mês<select name="mes">'+MESES.map(function(n,i){return '<option value="'+(i+1)+'"'+(i+1===mes?" selected":"")+">"+n+" "+st.ano+"</option>"}).join("")+"</select></label>"+
+    '<label>Quinzena<select name="q"><option value="1"'+(q===1?" selected":"")+'>01 a 15</option><option value="2"'+(q===2?" selected":"")+">16 a 31</option></select></label>"+
+    '<p class="dica inteiro" style="margin:0">Soma os lançamentos de todos os caminhões ('+dados.dias+(dados.dias===1?" dia":" dias")+') e grava no Financeiro. Marque o que quer lançar, confira os valores e a linha de destino.</p><div class="fecha">';
+  dados.itens.forEach(function(it,i){
+    if(i===0)h+="<h4>Entrada</h4>";if(i===1)h+="<h4>Pagamentos de motoristas e ajudantes</h4>";
+    h+='<div class="fecha-item" data-i="'+i+'"><input type="checkbox" aria-label="Lançar '+esc(it.nome)+'"><div><b>'+esc(it.nome)+"</b><br><small>"+esc(it.detalhe)+'</small></div><input class="val" inputmode="decimal" value="'+dinheiroCampo(it.valor)+'" aria-label="Valor"><select aria-label="Linha do financeiro">'+opcoes(it)+'</select><div class="atual"></div></div>'});
+  if(dados.itens.length===1&&!dados.itens[0].valor)h+='<p class="dica" style="margin:0">Nenhum lançamento nesta quinzena.</p>';
+  h+='</div><div class="acoes"><button type="button" class="btn" id="cancelar">Cancelar</button><button class="btn prim">Lançar no financeiro</button></div></form>';
+  j.innerHTML=h;
+  var f=j.querySelector("form");
+  f.mes.onchange=f.q.onchange=function(){fechamento(Number(f.mes.value),Number(f.q.value))};
+  function confere(div,primeiraVez){var it=dados.itens[Number(div.dataset.i)],sel=div.querySelector("select"),cx=div.querySelector("input[type=checkbox]"),at=div.querySelector(".atual");
+    var atual=sel.value?valor(sel.value,mes):0,novo=lerNumero(div.querySelector(".val").value);
+    if(!sel.value)at.textContent="Vai criar a linha "+it.nova+" no Financeiro.";
+    else if(!atual)at.textContent="Hoje está vazio no Financeiro.";
+    else if(Math.abs(atual-novo)<0.005)at.textContent="Já está lançado com este valor.";
+    else at.textContent="Atenção: no Financeiro já tem "+dinheiro(atual)+". Marcando, troca pelo valor ao lado.";
+    at.classList.toggle("aviso",!!(sel.value&&atual&&Math.abs(atual-novo)>=0.005));
+    if(primeiraVez)cx.checked=!!novo&&(!atual||Math.abs(atual-novo)<0.005)&&!(sel.value&&Math.abs(atual-novo)<0.005)}
+  j.querySelectorAll(".fecha-item").forEach(function(div){confere(div,true);div.querySelector("select").onchange=function(){confere(div)};div.querySelector(".val").oninput=function(){confere(div)}});
+  $("#cancelar").onclick=function(){j.close()};
+  f.onsubmit=function(ev){ev.preventDefault();var itens=[],erro=false;
+    j.querySelectorAll(".fecha-item").forEach(function(div){if(!div.querySelector("input[type=checkbox]").checked)return;var it=dados.itens[Number(div.dataset.i)],v=lerNumero(div.querySelector(".val").value),sel=div.querySelector("select").value;
+      if(isNaN(v)){erro=true;return}itens.push(sel?{linha_id:sel,valor:v}:{nova_linha:it.nova,grupo:it.grupo,valor:v});
+      if(it.tipo==="Pagamento")lembrarDestino(it.grupo,it.nome,sel?div.querySelector("select").selectedOptions[0].textContent:it.nova)});
+    if(erro){aviso("Confira os valores.",true);return}if(!itens.length){aviso("Marque pelo menos um item.",true);return}
+    api("POST","fechar",{ano:st.ano,mes:mes,itens:itens}).then(function(){j.close();aviso("Lançado no Financeiro");st.mes=mes;carregar()}).catch(function(e){aviso(e.message,true)})};
   j.showModal();
 }
 
