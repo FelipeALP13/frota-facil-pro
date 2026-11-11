@@ -78,6 +78,13 @@
       "when": 1794355200000,
       "tag": "0010_nomes_no_lancamento",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1794441600000,
+      "tag": "0011_despesas_vales_lembretes",
+      "breakpoints": true
     }
   ]
 }

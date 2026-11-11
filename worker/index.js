@@ -83,7 +83,116 @@ async function dados(db, url) {
   // Usa o mais recente, não o maior: o hodômetro pode ter sido trocado.
   const ultimoKm = await todos(db,
     "SELECT caminhao_id, km FROM (SELECT caminhao_id, COALESCE(km_final,km_inicial) AS km, ROW_NUMBER() OVER (PARTITION BY caminhao_id ORDER BY data DESC, criado_em DESC, COALESCE(km_final,km_inicial) DESC) AS n FROM cam_lancamentos WHERE COALESCE(km_final,km_inicial) IS NOT NULL) WHERE n=1");
-  return { ano, caminhoes, lancamentos, linhas, valores, ultimoKm };
+  const [despesas, vales, lembretes, config] = await Promise.all([
+    todos(db, "SELECT * FROM cam_despesas WHERE data>=? AND data<=? ORDER BY data,criado_em", `${ano}-01-01`, `${ano}-12-31`),
+    todos(db, "SELECT * FROM cam_vales WHERE data>=? AND data<=? ORDER BY data,criado_em", `${ano}-01-01`, `${ano}-12-31`),
+    todos(db, "SELECT * FROM cam_lembretes ORDER BY nome"),
+    lerConfig(db),
+  ]);
+  return { ano, caminhoes, lancamentos, linhas, valores, ultimoKm, despesas, vales, lembretes, config };
+}
+
+// ---------- Ajustes, outras despesas, vales e lembretes ----------
+
+async function lerConfig(db) {
+  const linhas = await todos(db, "SELECT chave,valor FROM config");
+  const cfg = {};
+  for (const l of linhas) { try { cfg[l.chave] = JSON.parse(l.valor); } catch { /* ignora valor corrompido */ } }
+  return cfg;
+}
+
+async function salvarConfig(db, p) {
+  const chave = texto(p, "chave", true, "chave");
+  if (!/^[a-z_]{1,40}$/.test(chave)) throw new Error("Ajuste inválido.");
+  const valor = JSON.stringify(p.valor ?? null);
+  if (valor.length > 20000) throw new Error("Ajuste grande demais.");
+  await executar(db, "INSERT INTO config (chave,valor) VALUES (?,?) ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor", chave, valor);
+  return { ok: true };
+}
+
+async function caminhaoExiste(db, id) {
+  const r = await todos(db, "SELECT id FROM cam_caminhoes WHERE id=?", id);
+  if (!r.length) throw new Error("Caminhão não encontrado.");
+}
+
+async function salvarDespesa(db, p) {
+  const caminhaoId = texto(p, "caminhao_id", true, "caminhão");
+  await caminhaoExiste(db, caminhaoId);
+  const valor = numero(p, "valor", "valor");
+  if (valor <= 0) throw new Error("Informe o valor da despesa.");
+  const campos = [caminhaoId, dataValida(p, "data"), texto(p, "categoria") || "Outros", valor, kmOpcional(p, "km"), texto(p, "obs")];
+  if (p.id) {
+    await executar(db, "UPDATE cam_despesas SET caminhao_id=?,data=?,categoria=?,valor=?,km=?,obs=? WHERE id=?", ...campos, String(p.id));
+    return { id: p.id };
+  }
+  const id = crypto.randomUUID();
+  await executar(db, "INSERT INTO cam_despesas (caminhao_id,data,categoria,valor,km,obs,id) VALUES (?,?,?,?,?,?,?)", ...campos, id);
+  return { id };
+}
+
+async function salvarVale(db, p) {
+  const valor = numero(p, "valor", "valor");
+  if (valor <= 0) throw new Error("Informe o valor do vale.");
+  const campos = [texto(p, "pessoa", true, "pessoa"), dataValida(p, "data"), valor, texto(p, "obs")];
+  if (p.id) {
+    await executar(db, "UPDATE cam_vales SET pessoa=?,data=?,valor=?,obs=? WHERE id=?", ...campos, String(p.id));
+    return { id: p.id };
+  }
+  const id = crypto.randomUUID();
+  await executar(db, "INSERT INTO cam_vales (pessoa,data,valor,obs,id) VALUES (?,?,?,?,?)", ...campos, id);
+  return { id };
+}
+
+function dataOpcional(p, chave) {
+  const v = texto(p, chave);
+  if (!v) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new Error("Data inválida.");
+  return v;
+}
+
+async function salvarLembrete(db, p) {
+  const tipo = p.tipo === "data" ? "data" : "km";
+  const caminhaoId = texto(p, "caminhao_id") || null;
+  if (caminhaoId) await caminhaoExiste(db, caminhaoId);
+  const nome = texto(p, "nome", true, "nome");
+  let aCadaKm = null, ultimoKm = null, venceEm = null, aCadaMeses = null;
+  if (tipo === "km") {
+    if (!caminhaoId) throw new Error("Lembrete por KM precisa de um caminhão.");
+    aCadaKm = kmOpcional(p, "a_cada_km");
+    if (!aCadaKm) throw new Error("Informe a cada quantos km.");
+    ultimoKm = kmOpcional(p, "ultimo_km");
+    if (ultimoKm === null) throw new Error("Informe o KM em que foi feito pela última vez.");
+  } else {
+    venceEm = dataOpcional(p, "vence_em");
+    if (!venceEm) throw new Error("Informe a data de vencimento.");
+    const m = Number(p.a_cada_meses || 0);
+    aCadaMeses = Number.isInteger(m) && m > 0 && m <= 120 ? m : null;
+  }
+  const campos = [caminhaoId, nome, tipo, aCadaKm, ultimoKm, venceEm, aCadaMeses, texto(p, "obs")];
+  if (p.id) {
+    await executar(db, "UPDATE cam_lembretes SET caminhao_id=?,nome=?,tipo=?,a_cada_km=?,ultimo_km=?,vence_em=?,a_cada_meses=?,obs=? WHERE id=?", ...campos, String(p.id));
+    return { id: p.id };
+  }
+  const id = crypto.randomUUID();
+  await executar(db, "INSERT INTO cam_lembretes (caminhao_id,nome,tipo,a_cada_km,ultimo_km,vence_em,a_cada_meses,obs,id) VALUES (?,?,?,?,?,?,?,?,?)", ...campos, id);
+  return { id };
+}
+
+// Marca um lembrete como feito: por KM, reinicia no KM informado; por data, empurra o vencimento.
+async function lembreteFeito(db, p) {
+  const id = texto(p, "id", true);
+  const r = (await todos(db, "SELECT * FROM cam_lembretes WHERE id=?", id))[0];
+  if (!r) throw new Error("Lembrete não encontrado.");
+  if (r.tipo === "km") {
+    const km = kmOpcional(p, "km");
+    if (km === null) throw new Error("Informe o KM em que foi feito.");
+    await executar(db, "UPDATE cam_lembretes SET ultimo_km=? WHERE id=?", km, id);
+  } else {
+    const nova = dataOpcional(p, "vence_em");
+    if (!nova) throw new Error("Informe o novo vencimento.");
+    await executar(db, "UPDATE cam_lembretes SET vence_em=? WHERE id=?", nova, id);
+  }
+  return { ok: true };
 }
 
 async function salvarCaminhao(db, p) {
@@ -110,9 +219,12 @@ async function salvarCaminhao(db, p) {
 }
 
 async function excluirCaminhao(db, id) {
-  const usados = await todos(db, "SELECT COUNT(*) AS n FROM cam_lancamentos WHERE caminhao_id=?", id);
-  if (usados[0].n > 0) throw new Error("Este caminhão tem lançamentos. Exclua os lançamentos antes.");
-  await executar(db, "DELETE FROM cam_caminhoes WHERE id=?", id);
+  const usados = await todos(db, "SELECT (SELECT COUNT(*) FROM cam_lancamentos WHERE caminhao_id=?)+(SELECT COUNT(*) FROM cam_despesas WHERE caminhao_id=?) AS n", id, id);
+  if (usados[0].n > 0) throw new Error("Este caminhão tem lançamentos ou despesas. Exclua-os antes.");
+  await db.batch([
+    db.prepare("DELETE FROM cam_lembretes WHERE caminhao_id=?").bind(id),
+    db.prepare("DELETE FROM cam_caminhoes WHERE id=?").bind(id),
+  ]);
   return { ok: true };
 }
 
@@ -253,13 +365,20 @@ async function backup(db) {
   const valores = await todos(db, "SELECT linha_id,mes,valor FROM fin_valores");
   const porLinha = {};
   for (const v of valores) (porLinha[v.linha_id] ||= {})[v.mes] = v.valor;
+  const despesas = await todos(db, "SELECT d.id,c.placa,d.data,d.categoria,d.valor,d.km,d.obs FROM cam_despesas d JOIN cam_caminhoes c ON c.id=d.caminhao_id ORDER BY d.data");
+  const vales = await todos(db, "SELECT id,pessoa,data,valor,obs FROM cam_vales ORDER BY data");
+  const lembretes = await todos(db, "SELECT l.id,c.placa,l.nome,l.tipo,l.a_cada_km,l.ultimo_km,l.vence_em,l.a_cada_meses,l.obs FROM cam_lembretes l LEFT JOIN cam_caminhoes c ON c.id=l.caminhao_id");
   return {
     formato: "frota-simples",
-    versao: 1,
+    versao: 2,
     exportado_em: new Date().toISOString(),
     caminhoes,
     lancamentos,
     linhas: linhas.map((l) => ({ ano: l.ano, grupo: l.grupo, nome: l.nome, valores: porLinha[l.id] || {} })),
+    despesas,
+    vales,
+    lembretes,
+    config: await lerConfig(db),
   };
 }
 
@@ -295,6 +414,10 @@ async function importar(db, p) {
       await executar(db, "UPDATE cam_caminhoes SET nome_motorista=?,nome_ajudante=? WHERE id=?", atual.nome_motorista, atual.nome_ajudante, atual.id);
     }
   }
+  const despesas = Array.isArray(p.despesas) ? p.despesas : [];
+  const vales = Array.isArray(p.vales) ? p.vales : [];
+  const lembretes = Array.isArray(p.lembretes) ? p.lembretes : [];
+  for (const d of despesas) placasUsadas.add(String(d.placa || "").toUpperCase());
   for (const placa of placasUsadas) if (!porPlaca[placa]) throw new Error(`O caminhão ${placa} não está no arquivo nem no sistema.`);
 
   // Lançamentos: o mesmo id substitui o anterior, então importar duas vezes não duplica.
@@ -341,8 +464,36 @@ async function importar(db, p) {
         : db.prepare("INSERT INTO fin_valores (linha_id,mes,valor) VALUES (?,?,?) ON CONFLICT(linha_id,mes) DO UPDATE SET valor=excluded.valor").bind(id, mes, valor));
     }
   }
+  // Outras despesas, vales e lembretes: o mesmo id substitui o anterior.
+  for (const d of despesas) {
+    const id = texto(d, "id", true, "id").slice(0, 80), cam = porPlaca[String(d.placa || "").toUpperCase()];
+    comandos.push(db.prepare("DELETE FROM cam_despesas WHERE id=?").bind(id));
+    comandos.push(db.prepare("INSERT INTO cam_despesas (id,caminhao_id,data,categoria,valor,km,obs) VALUES (?,?,?,?,?,?,?)")
+      .bind(id, cam.id, dataValida(d, "data"), texto(d, "categoria") || "Outros", numero(d, "valor"), kmOpcional(d, "km"), texto(d, "obs")));
+  }
+  for (const v of vales) {
+    const id = texto(v, "id", true, "id").slice(0, 80);
+    comandos.push(db.prepare("DELETE FROM cam_vales WHERE id=?").bind(id));
+    comandos.push(db.prepare("INSERT INTO cam_vales (id,pessoa,data,valor,obs) VALUES (?,?,?,?,?)")
+      .bind(id, texto(v, "pessoa", true, "pessoa"), dataValida(v, "data"), numero(v, "valor"), texto(v, "obs")));
+  }
+  for (const l of lembretes) {
+    const id = texto(l, "id", true, "id").slice(0, 80), cam = l.placa ? porPlaca[String(l.placa).toUpperCase()] : null;
+    comandos.push(db.prepare("DELETE FROM cam_lembretes WHERE id=?").bind(id));
+    comandos.push(db.prepare("INSERT INTO cam_lembretes (id,caminhao_id,nome,tipo,a_cada_km,ultimo_km,vence_em,a_cada_meses,obs) VALUES (?,?,?,?,?,?,?,?,?)")
+      .bind(id, cam ? cam.id : null, texto(l, "nome", true, "nome"), l.tipo === "data" ? "data" : "km", kmOpcional(l, "a_cada_km"), kmOpcional(l, "ultimo_km"),
+        dataOpcional(l, "vence_em"), Number.isInteger(l.a_cada_meses) ? l.a_cada_meses : null, texto(l, "obs")));
+  }
+  if (p.config && typeof p.config === "object") {
+    for (const [chave, valor] of Object.entries(p.config)) {
+      if (!/^[a-z_]{1,40}$/.test(chave)) continue;
+      const txt = JSON.stringify(valor);
+      if (txt.length > 20000) continue;
+      comandos.push(db.prepare("INSERT INTO config (chave,valor) VALUES (?,?) ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor").bind(chave, txt));
+    }
+  }
   await emLotes(db, comandos);
-  return { ok: true, lancamentos: lancamentos.length, linhas: linhas.length };
+  return { ok: true, lancamentos: lancamentos.length, linhas: linhas.length, despesas: despesas.length, vales: vales.length, lembretes: lembretes.length };
 }
 
 async function lerCorpo(request) {
@@ -368,6 +519,14 @@ async function api(request, env, url) {
     if (rota === "valor" && metodo === "POST") return json(await salvarValor(db, await lerCorpo(request)));
     if (rota === "valor/repetir" && metodo === "POST") return json(await repetirValor(db, await lerCorpo(request)));
     if (rota === "fechar" && metodo === "POST") return json(await fecharQuinzena(db, await lerCorpo(request)));
+    if (rota === "despesa" && metodo === "POST") return json(await salvarDespesa(db, await lerCorpo(request)));
+    if (rota === "despesa" && metodo === "DELETE") { await executar(db, "DELETE FROM cam_despesas WHERE id=?", url.searchParams.get("id") || ""); return json({ ok: true }); }
+    if (rota === "vale" && metodo === "POST") return json(await salvarVale(db, await lerCorpo(request)));
+    if (rota === "vale" && metodo === "DELETE") { await executar(db, "DELETE FROM cam_vales WHERE id=?", url.searchParams.get("id") || ""); return json({ ok: true }); }
+    if (rota === "lembrete" && metodo === "POST") return json(await salvarLembrete(db, await lerCorpo(request)));
+    if (rota === "lembrete" && metodo === "DELETE") { await executar(db, "DELETE FROM cam_lembretes WHERE id=?", url.searchParams.get("id") || ""); return json({ ok: true }); }
+    if (rota === "lembrete/feito" && metodo === "POST") return json(await lembreteFeito(db, await lerCorpo(request)));
+    if (rota === "config" && metodo === "POST") return json(await salvarConfig(db, await lerCorpo(request)));
     if (rota === "backup" && metodo === "GET") return json(await backup(db));
     if (rota === "importar" && metodo === "POST") return json(await importar(db, await lerCorpo(request)));
     return json({ error: "Rota não encontrada." }, 404);

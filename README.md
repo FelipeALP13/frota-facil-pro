@@ -20,7 +20,12 @@ No celular o menu fica embaixo; no computador, em cima. Segue o tema claro/escur
   - Clique no nome de uma linha para renomear, excluir ou **repetir o valor até dezembro** (contas fixas).
   - Abaixo de cada receita aparece, como referência, o total de frete dos caminhões naquela quinzena.
   - Ao abrir um ano novo, as linhas do ano anterior são copiadas (sem valores).
-- **Resumo**: gráfico da sobra dos caminhões por mês, totais de cada caminhão no ano, tabelas por mês (caminhões e financeiro).
+- **Lançar** (botão laranja): dia de trabalho, **outra despesa do caminhão** (pedágio, manutenção, pneus, documentos...) ou **vale/adiantamento** para motorista ou ajudante.
+  - Outras despesas entram nos gastos e na sobra do caminhão.
+  - Vales são descontados automaticamente no fechamento da quinzena.
+- **Lembretes**: manutenção por KM (ex.: troca de óleo a cada 10.000 km) e vencimentos por data (licenciamento, seguro, ANTT, CNH). Aparecem no Início quando estão perto; o botão "Feito" reinicia a contagem.
+- **Resumo**: gráfico da sobra dos caminhões por mês, R$ por km (receita, custo e sobra), margem, totais de cada caminhão no ano, outras despesas por categoria e tabelas por mês.
+- **Ajustes**: caminhões e equipes, lembretes e antecedência dos avisos, categorias de despesa, quais campos aparecem ao lançar um dia (KM, valor de saída, diesel, observação) e backup/importação. O Início lembra de fazer backup toda semana.
   - **Baixar backup**: baixa um arquivo `.json` com tudo. Guarde de vez em quando.
   - **Importar arquivo**: carrega um backup ou o arquivo de importação das planilhas. Importar o mesmo arquivo de novo não duplica nada: lançamentos com o mesmo código são substituídos e as linhas do financeiro são achadas pelo nome.
 

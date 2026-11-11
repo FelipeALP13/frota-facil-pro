@@ -155,5 +155,35 @@ assert.equal(imp[0].nome_ajudante, "Pai");
 assert.equal(r.linhas.filter((l) => l.grupo === "rec1").length, 1, "receita casa com a linha existente");
 assert.equal((await call("POST", "importar", { qualquer: 1 })).status, 400);
 
+// Outras despesas, vales, lembretes e ajustes
+r = await call("POST", "despesa", { caminhao_id: "cam2", data: "2026-05-06", categoria: "Pedágio", valor: 86.4, obs: "ponte" });
+assert.equal(r.status, 200);
+const despId = r.data.id;
+assert.equal((await call("POST", "despesa", { caminhao_id: "cam2", data: "2026-05-06", valor: 0 })).status, 400);
+assert.equal((await call("DELETE", "caminhao?id=cam2")).status, 400, "não exclui caminhão com despesas");
+r = await call("POST", "vale", { pessoa: "Gabriel", data: "2026-05-04", valor: 50 });
+assert.equal(r.status, 200);
+assert.equal((await call("POST", "vale", { pessoa: "", data: "2026-05-04", valor: 50 })).status, 400);
+r = await call("POST", "lembrete", { tipo: "km", caminhao_id: "cam2", nome: "Troca de óleo", a_cada_km: "10.000", ultimo_km: 600000 });
+assert.equal(r.status, 200);
+const lembId = r.data.id;
+assert.equal((await call("POST", "lembrete", { tipo: "km", nome: "Sem caminhão", a_cada_km: 1000, ultimo_km: 1 })).status, 400);
+assert.equal((await call("POST", "lembrete", { tipo: "data", nome: "Seguro", vence_em: "2026-12-01", a_cada_meses: 12 })).status, 200);
+assert.equal((await call("POST", "lembrete/feito", { id: lembId, km: "610.500" })).status, 200);
+assert.equal((await call("POST", "config", { chave: "prefs", valor: { avisoKm: 800 } })).status, 200);
+assert.equal((await call("POST", "config", { chave: "Nome Ruim", valor: 1 })).status, 400);
+r = (await call("GET", "dados?ano=2026")).data;
+assert.equal(r.despesas.length, 1);
+assert.equal(r.vales.length, 1);
+assert.equal(r.lembretes.find((l) => l.id === lembId).ultimo_km, 610500);
+assert.equal(r.config.prefs.avisoKm, 800);
+const bk2 = (await call("GET", "backup")).data;
+assert.equal(bk2.despesas.length, 1);
+assert.equal((await call("POST", "importar", bk2)).status, 200);
+r = (await call("GET", "dados?ano=2026")).data;
+assert.equal(r.despesas.length, 1, "importar backup não duplica despesas");
+assert.equal(r.lembretes.length, 2, "nem lembretes");
+assert.equal((await call("DELETE", `despesa?id=${despId}`)).status, 200);
+
 assert.equal((await call("GET", "nada")).status, 404);
 console.log("Teste OK: caminhões, lançamentos, financeiro e validações.");
