@@ -55,6 +55,13 @@ assert.equal(r.data.lancamentos[0].km_inicial, 60643);
 assert.equal(r.data.lancamentos[1].km_final, 61016, "pernoite copia o KM inicial");
 assert.equal(r.data.ultimoKm[0].km, 61016);
 
+// KM atual = do dia mais recente, não o maior (hodômetro pode ter sido trocado)
+await call("POST", "lancamento", { caminhao_id: "cam3", data: "2026-03-01", km_inicial: 288000, km_final: 288500 });
+await call("POST", "lancamento", { caminhao_id: "cam3", data: "2026-03-20", km_inicial: 59000, km_final: 59400 });
+r = await call("GET", "dados?ano=2026");
+assert.equal(r.data.ultimoKm.find((k) => k.caminhao_id === "cam3").km, 59400);
+for (const l of r.data.lancamentos.filter((x) => x.caminhao_id === "cam3")) await call("DELETE", `lancamento?id=${l.id}`);
+
 // Validações
 assert.equal((await call("POST", "lancamento", { caminhao_id: "cam1", data: "2026-04-03", km_inicial: 500, km_final: 400 })).status, 400);
 assert.equal((await call("POST", "lancamento", { caminhao_id: "nao-existe", data: "2026-04-03" })).status, 400);

@@ -79,9 +79,10 @@ async function dados(db, url) {
     todos(db, "SELECT * FROM fin_linhas WHERE ano=? ORDER BY grupo,ordem,nome", ano),
     todos(db, "SELECT v.linha_id,v.mes,v.valor FROM fin_valores v JOIN fin_linhas l ON l.id=v.linha_id WHERE l.ano=?", ano),
   ]);
-  // Último KM conhecido de cada caminhão (de qualquer ano), para preencher o próximo lançamento.
+  // KM do lançamento mais recente de cada caminhão (de qualquer ano), para preencher o próximo dia.
+  // Usa o mais recente, não o maior: o hodômetro pode ter sido trocado.
   const ultimoKm = await todos(db,
-    "SELECT caminhao_id, MAX(COALESCE(km_final,km_inicial)) AS km FROM cam_lancamentos GROUP BY caminhao_id");
+    "SELECT caminhao_id, km FROM (SELECT caminhao_id, COALESCE(km_final,km_inicial) AS km, ROW_NUMBER() OVER (PARTITION BY caminhao_id ORDER BY data DESC, criado_em DESC, COALESCE(km_final,km_inicial) DESC) AS n FROM cam_lancamentos WHERE COALESCE(km_final,km_inicial) IS NOT NULL) WHERE n=1");
   return { ano, caminhoes, lancamentos, linhas, valores, ultimoKm };
 }
 
