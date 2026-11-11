@@ -18,6 +18,8 @@ Sistema para controlar 3 caminhões e o financeiro pessoal, no mesmo formato das
   - Abaixo de cada receita aparece, como referência, o total de frete dos caminhões naquela quinzena.
   - Ao abrir um ano novo, as linhas do ano anterior são copiadas (sem valores).
 - **Resumo**: frete, diesel, motoristas/ajudantes e sobra dos caminhões por mês, e o financeiro por mês com acumulado.
+  - **Baixar backup**: baixa um arquivo `.json` com tudo. Guarde de vez em quando.
+  - **Importar arquivo**: carrega um backup ou o arquivo de importação das planilhas. Importar o mesmo arquivo de novo não duplica nada: lançamentos com o mesmo código são substituídos e as linhas do financeiro são achadas pelo nome.
 
 ## Arquitetura
 

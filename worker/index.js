@@ -28,7 +28,9 @@ function numero(p, chave, rotulo = chave) {
 function kmOpcional(p, chave) {
   const bruto = p[chave];
   if (bruto === "" || bruto === null || bruto === undefined) return null;
-  const v = Number(String(bruto).replace(/\D/g, ""));
+  const digitos = String(bruto).replace(/\D/g, "");
+  if (!digitos) return null;
+  const v = Number(digitos);
   if (!Number.isFinite(v)) throw new Error("KM inválido.");
   return v;
 }
@@ -236,6 +238,112 @@ async function fecharQuinzena(db, p) {
   return { ok: true, gravados: itens.length };
 }
 
+// ---------- Backup e importação (mesmo formato de arquivo) ----------
+
+function semAcento(s) {
+  return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}
+
+async function backup(db) {
+  const caminhoes = await todos(db, "SELECT placa,nome_motorista,nome_ajudante,valor_motorista,valor_ajudante,km_franquia FROM cam_caminhoes ORDER BY ordem,placa");
+  const lancamentos = await todos(db,
+    "SELECT l.id,c.placa,l.data,l.regiao,l.km_inicial,l.km_final,l.pernoite,l.valor_saida,l.diesel,l.frete,l.motorista,l.ajudante,l.nome_motorista,l.nome_ajudante,l.obs FROM cam_lancamentos l JOIN cam_caminhoes c ON c.id=l.caminhao_id ORDER BY l.data,l.criado_em");
+  const linhas = await todos(db, "SELECT id,ano,grupo,nome,ordem FROM fin_linhas ORDER BY ano,grupo,ordem");
+  const valores = await todos(db, "SELECT linha_id,mes,valor FROM fin_valores");
+  const porLinha = {};
+  for (const v of valores) (porLinha[v.linha_id] ||= {})[v.mes] = v.valor;
+  return {
+    formato: "frota-simples",
+    versao: 1,
+    exportado_em: new Date().toISOString(),
+    caminhoes,
+    lancamentos,
+    linhas: linhas.map((l) => ({ ano: l.ano, grupo: l.grupo, nome: l.nome, valores: porLinha[l.id] || {} })),
+  };
+}
+
+async function emLotes(db, comandos) {
+  for (let i = 0; i < comandos.length; i += 80) await db.batch(comandos.slice(i, i + 80));
+}
+
+async function importar(db, p) {
+  if (p.formato !== "frota-simples") throw new Error("Este arquivo não é um backup/importação do sistema.");
+  const caminhoes = Array.isArray(p.caminhoes) ? p.caminhoes : [];
+  const lancamentos = Array.isArray(p.lancamentos) ? p.lancamentos : [];
+  const linhas = Array.isArray(p.linhas) ? p.linhas : [];
+  if (lancamentos.length > 20000 || linhas.length > 2000) throw new Error("Arquivo grande demais.");
+
+  // Caminhões: acha pela placa; cria se não existir. Nomes só são trocados se ainda estiverem no padrão.
+  const existentes = await todos(db, "SELECT * FROM cam_caminhoes");
+  const porPlaca = {};
+  for (const c of existentes) porPlaca[c.placa.toUpperCase()] = c;
+  let ordem = existentes.reduce((m, c) => Math.max(m, c.ordem), 0);
+  const placasUsadas = new Set(lancamentos.map((l) => String(l.placa || "").toUpperCase()));
+  for (const c of caminhoes) {
+    const placa = texto(c, "placa", true, "placa").toUpperCase();
+    const atual = porPlaca[placa];
+    const nm = texto(c, "nome_motorista") || "Motorista", na = texto(c, "nome_ajudante") || "Ajudante";
+    if (!atual) {
+      const novo = { id: crypto.randomUUID(), placa, nome_motorista: nm, nome_ajudante: na };
+      await executar(db, "INSERT INTO cam_caminhoes (id,placa,nome_motorista,nome_ajudante,valor_motorista,valor_ajudante,km_franquia,ordem) VALUES (?,?,?,?,?,?,?,?)",
+        novo.id, placa, nm, na, numero(c, "valor_motorista") || 170, numero(c, "valor_ajudante") || 100, Math.round(numero(c, "km_franquia")) || 130, ++ordem);
+      porPlaca[placa] = novo;
+    } else {
+      if (atual.nome_motorista === "Motorista" && nm !== "Motorista") atual.nome_motorista = nm;
+      if (atual.nome_ajudante === "Ajudante" && na !== "Ajudante") atual.nome_ajudante = na;
+      await executar(db, "UPDATE cam_caminhoes SET nome_motorista=?,nome_ajudante=? WHERE id=?", atual.nome_motorista, atual.nome_ajudante, atual.id);
+    }
+  }
+  for (const placa of placasUsadas) if (!porPlaca[placa]) throw new Error(`O caminhão ${placa} não está no arquivo nem no sistema.`);
+
+  // Lançamentos: o mesmo id substitui o anterior, então importar duas vezes não duplica.
+  const comandos = [];
+  for (const l of lancamentos) {
+    const cam = porPlaca[String(l.placa || "").toUpperCase()];
+    const id = texto(l, "id", true, "id").slice(0, 80);
+    const data = dataValida(l, "data");
+    const kmIni = kmOpcional(l, "km_inicial");
+    let kmFim = kmOpcional(l, "km_final");
+    if (l.pernoite && kmIni !== null && kmFim === null) kmFim = kmIni;
+    if (kmIni !== null && kmFim !== null && kmFim < kmIni) kmFim = null;
+    const quem = (chave, padrao) => { const v = texto(l, chave); return semAcento(v) === semAcento(padrao) ? "" : v; };
+    comandos.push(db.prepare("DELETE FROM cam_lancamentos WHERE id=?").bind(id));
+    comandos.push(db.prepare(
+      "INSERT INTO cam_lancamentos (id,caminhao_id,data,regiao,km_inicial,km_final,pernoite,valor_saida,diesel,frete,motorista,ajudante,nome_motorista,nome_ajudante,obs) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+    ).bind(id, cam.id, data, texto(l, "regiao"), kmIni, kmFim, l.pernoite ? 1 : 0, numero(l, "valor_saida"), numero(l, "diesel"), numero(l, "frete"),
+      numero(l, "motorista"), numero(l, "ajudante"), quem("nome_motorista", cam.nome_motorista), quem("nome_ajudante", cam.nome_ajudante), texto(l, "obs")));
+  }
+
+  // Financeiro: a linha é achada por ano + grupo + nome (sem diferenciar maiúsculas/acentos).
+  const linhasAtuais = await todos(db, "SELECT id,ano,grupo,nome,ordem FROM fin_linhas");
+  const chave = (ano, grupo, nome) => `${ano}|${grupo}|${semAcento(nome)}`;
+  const mapa = {}, maxOrdem = {};
+  for (const l of linhasAtuais) {
+    mapa[chave(l.ano, l.grupo, l.nome)] = l.id;
+    maxOrdem[`${l.ano}|${l.grupo}`] = Math.max(maxOrdem[`${l.ano}|${l.grupo}`] || 0, l.ordem);
+  }
+  for (const l of linhas) {
+    const ano = anoValido(l.ano), grupo = String(l.grupo || ""), nome = texto(l, "nome", true, "nome");
+    if (!GRUPOS.includes(grupo)) throw new Error("Grupo inválido no arquivo.");
+    let id = mapa[chave(ano, grupo, nome)];
+    if (!id) {
+      id = crypto.randomUUID();
+      mapa[chave(ano, grupo, nome)] = id;
+      const k = `${ano}|${grupo}`;
+      maxOrdem[k] = (maxOrdem[k] || 0) + 1;
+      comandos.push(db.prepare("INSERT INTO fin_linhas (id,ano,grupo,nome,ordem) VALUES (?,?,?,?,?)").bind(id, ano, grupo, nome, maxOrdem[k]));
+    }
+    for (const [mesTxt, bruto] of Object.entries(l.valores || {})) {
+      const mes = mesValido(mesTxt), valor = numero({ v: bruto }, "v");
+      comandos.push(valor === 0
+        ? db.prepare("DELETE FROM fin_valores WHERE linha_id=? AND mes=?").bind(id, mes)
+        : db.prepare("INSERT INTO fin_valores (linha_id,mes,valor) VALUES (?,?,?) ON CONFLICT(linha_id,mes) DO UPDATE SET valor=excluded.valor").bind(id, mes, valor));
+    }
+  }
+  await emLotes(db, comandos);
+  return { ok: true, lancamentos: lancamentos.length, linhas: linhas.length };
+}
+
 async function lerCorpo(request) {
   try { return await request.json(); } catch { throw new Error("Dados inválidos."); }
 }
@@ -259,6 +367,8 @@ async function api(request, env, url) {
     if (rota === "valor" && metodo === "POST") return json(await salvarValor(db, await lerCorpo(request)));
     if (rota === "valor/repetir" && metodo === "POST") return json(await repetirValor(db, await lerCorpo(request)));
     if (rota === "fechar" && metodo === "POST") return json(await fecharQuinzena(db, await lerCorpo(request)));
+    if (rota === "backup" && metodo === "GET") return json(await backup(db));
+    if (rota === "importar" && metodo === "POST") return json(await importar(db, await lerCorpo(request)));
     return json({ error: "Rota não encontrada." }, 404);
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Erro inesperado.";

@@ -124,5 +124,29 @@ assert.equal((await call("POST", "fechar", { ano: 2026, mes: 5, itens: [] })).st
 assert.equal((await call("POST", "fechar", { ano: 2026, mes: 5, itens: [{ linha_id: "outra", valor: 1 }] })).status, 400);
 assert.equal((await call("POST", "fechar", { ano: 2026, mes: 5, itens: [{ nova_linha: "X", grupo: "errado", valor: 1 }] })).status, 400);
 
+// Backup e importação: importar o próprio backup não muda nada; importar duas vezes não duplica
+const resumo = (d) => JSON.stringify([d.lancamentos.length, d.linhas.length, d.valores.length]);
+const antes = (await call("GET", "dados?ano=2026")).data;
+const arquivo = (await call("GET", "backup")).data;
+assert.equal(arquivo.formato, "frota-simples");
+assert.equal((await call("POST", "importar", arquivo)).status, 200);
+assert.equal(resumo((await call("GET", "dados?ano=2026")).data), resumo(antes));
+const planilha = {
+  formato: "frota-simples", versao: 1,
+  caminhoes: [{ placa: "XYZ9A88", nome_motorista: "Fulano", nome_ajudante: "Beltrano" }],
+  lancamentos: [{ id: "imp-1", placa: "XYZ9A88", data: "2026-06-03", km_inicial: "1 000", km_final: "PERNOITE", pernoite: true, frete: 900, motorista: 170, ajudante: 100, nome_motorista: "FULANO", nome_ajudante: "Pai" }],
+  linhas: [{ ano: 2026, grupo: "rec1", nome: "receita 01 a 15", valores: { 6: 5000 } }],
+};
+assert.equal((await call("POST", "importar", planilha)).status, 200);
+assert.equal((await call("POST", "importar", planilha)).status, 200);
+r = (await call("GET", "dados?ano=2026")).data;
+const imp = r.lancamentos.filter((l) => l.id === "imp-1");
+assert.equal(imp.length, 1, "não duplica");
+assert.equal(imp[0].km_final, 1000, "pernoite usa o KM inicial");
+assert.equal(imp[0].nome_motorista, "", "nome padrão fica vazio");
+assert.equal(imp[0].nome_ajudante, "Pai");
+assert.equal(r.linhas.filter((l) => l.grupo === "rec1").length, 1, "receita casa com a linha existente");
+assert.equal((await call("POST", "importar", { qualquer: 1 })).status, 400);
+
 assert.equal((await call("GET", "nada")).status, 404);
 console.log("Teste OK: caminhões, lançamentos, financeiro e validações.");

@@ -318,7 +318,19 @@ function telaResumo(){
   meses.forEach(function(m){var e=totalGrupo("rec1",m)+totalGrupo("rec2",m),s=totalGrupo("desp1",m)+totalGrupo("desp2",m),a=acumulado(m);
     h+="<tr><td>"+MESES[m-1]+"</td><td>"+dinheiro(e)+"</td><td>"+dinheiro(s)+'</td><td class="'+cor(e-s)+'">'+dinheiro(e-s)+'</td><td class="'+cor(a)+'">'+dinheiro(a)+"</td></tr>"});
   h+="</tbody></table></div></section>";
+  h+='<section class="bloco"><h2>Dados</h2><div style="padding:14px;display:grid;gap:10px">'+
+    '<p class="dica" style="margin:0">Baixe um backup de vez em quando e guarde no computador ou no Google Drive. O mesmo arquivo serve para importar de volta.</p>'+
+    '<div class="botoes" style="flex-wrap:wrap"><button class="btn prim" id="baixarBackup">Baixar backup</button><label class="btn" style="display:inline-block;color:var(--tinta);font-size:15px">Importar arquivo<input type="file" id="arquivoImportar" accept=".json,application/json" hidden></label></div></div></section>';
   $("#tela").innerHTML=h;
+  $("#baixarBackup").onclick=function(){api("GET","backup").then(function(d){
+    var a=document.createElement("a"),hj=new Date(),nome="frota-backup-"+hj.getFullYear()+"-"+String(hj.getMonth()+1).padStart(2,"0")+"-"+String(hj.getDate()).padStart(2,"0")+".json";
+    a.href=URL.createObjectURL(new Blob([JSON.stringify(d)],{type:"application/json"}));a.download=nome;document.body.appendChild(a);a.click();a.remove();aviso("Backup baixado")}).catch(function(e){aviso(e.message,true)})};
+  $("#arquivoImportar").onchange=function(ev){var arq=ev.target.files[0];ev.target.value="";if(!arq)return;
+    arq.text().then(function(t){var d;try{d=JSON.parse(t)}catch(e){throw new Error("Arquivo inválido.")}
+      if(d.formato!=="frota-simples")throw new Error("Este arquivo não é um backup do sistema.");
+      var nl=(d.lancamentos||[]).length,nf=(d.linhas||[]).length;
+      if(!confirm("Importar "+nl+" lançamentos de caminhão e "+nf+" linhas do financeiro?\n\nLançamentos já importados antes são substituídos (não duplica). Valores do financeiro que estiverem no arquivo substituem os atuais."))return;
+      aviso("Importando...");return api("POST","importar",d).then(function(r){aviso("Importado: "+r.lancamentos+" lançamentos");carregar()})}).catch(function(e){aviso(e.message,true)})};
 }
 
 document.querySelectorAll("nav button").forEach(function(b){b.onclick=function(){st.aba=b.dataset.aba;lembrar();desenhar()}});
