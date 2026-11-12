@@ -4,6 +4,7 @@ export const page = String.raw`<!doctype html>
 <meta name="theme-color" content="#0f3d5c" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#121c22" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Frota">
 <title>Frota</title>
+<link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icone.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/icone.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -176,6 +177,12 @@ label.campo{display:grid;gap:5px;font-size:13px;font-weight:600;color:var(--ink2
 .fecha-item select{grid-column:2/-1;border:1px solid var(--line);border-radius:10px;padding:8px;background:var(--surface);font-size:14px}
 .fecha-item .estado{grid-column:2/-1;font-size:12.5px;color:var(--muted)}.fecha-item .estado.alerta{color:var(--bad);font-weight:600}
 
+/* Sem internet e envios pendentes */
+.pend{display:none;align-items:center;gap:6px;border:0;border-radius:999px;padding:6px 11px;background:var(--warn-soft);color:var(--warn);font-weight:700;font-size:13px}
+.pend.on{display:inline-flex}.pend .ic{width:16px;height:16px}
+.offline{display:none;background:var(--warn-soft);color:var(--warn);font-weight:600;font-size:13.5px;text-align:center;padding:8px 14px}
+.offline.on{display:block}
+
 /* Avisos, lembretes, ajustes */
 .alertas{display:grid;gap:10px;margin-bottom:18px}
 .alerta{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--surface)}
@@ -215,7 +222,7 @@ label.campo{display:grid;gap:5px;font-size:13px;font-weight:600;color:var(--ink2
   .cab h1{font-size:21px}.saudacao h1{font-size:22px}
   .tiles{grid-template-columns:1fr 1fr;gap:10px}.tile b{font-size:19px}
   .fab{display:flex;align-items:center;gap:8px;position:fixed;right:16px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:29;border:0;background:var(--accent);color:var(--accent-ink);font-weight:800;padding:14px 20px;border-radius:999px;box-shadow:0 8px 22px #ee7a2c55}
-  .fab.escondido{display:none}
+  .fab.escondido{display:none}#aviso{bottom:calc(140px + env(safe-area-inset-bottom))}
   .so-pc{display:none!important}.mesnav{width:100%;justify-content:space-between}.mesnav b{min-width:0}
   .cab:not(.saudacao) h1{display:none}.cab{margin-bottom:12px}
   .cab-cam{margin-bottom:12px;gap:10px}.cab-cam .cab-txt{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%}.cab-cam .cab-txt p{margin:0}
@@ -229,8 +236,10 @@ label.campo{display:grid;gap:5px;font-size:13px;font-weight:600;color:var(--ink2
   <div class="marca"><i><svg class="ic" viewBox="0 0 24 24"><path d="M2 6h11v10H2zM13 9h4l4 4v3h-8z"/><circle cx="6" cy="17.5" r="2"/><circle cx="17" cy="17.5" r="2"/></svg></i><span>Frota</span></div>
   <div class="titulo-cel" id="tituloCel">Frota</div>
   <nav class="nav-topo" id="navTopo" aria-label="Seções"></nav>
+  <button class="pend" id="pendentes" title="Lançamentos guardados no celular esperando internet"><svg class="ic" viewBox="0 0 24 24"><path d="M7 18a5 5 0 1 1 .9-9.9A6 6 0 0 1 19 10a4 4 0 0 1-1 7.9M12 12v6M9 15l3 3 3-3"/></svg><span></span></button>
   <div class="ano"><button id="anoMenos" aria-label="Ano anterior"><svg class="ic" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button><span id="anoTxt"></span><button id="anoMais" aria-label="Próximo ano"><svg class="ic" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button></div>
 </div></header>
+<div class="offline" id="offline" role="status">Sem internet. Pode lançar normalmente: fica guardado no celular e é enviado quando o sinal voltar.</div>
 <main id="tela"><div class="carregando"><div class="giro"></div></div></main>
 <button class="fab escondido" id="fab"><svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Lançar</button>
 <nav class="nav-baixo" id="navBaixo" aria-label="Seções"></nav>
@@ -274,9 +283,33 @@ function hojeZero(){return new Date(hoje.getFullYear(),hoje.getMonth(),hoje.getD
 function quando(iso){var d=diasEntre(dataObj(iso),hojeZero());if(d===0)return "Hoje";if(d===1)return "Ontem";if(d>1&&d<7)return "Há "+d+" dias";return iso.slice(8,10)+"/"+iso.slice(5,7)}
 function nomeQ(mes,q){return (q===1?"1ª":"2ª")+" quinzena de "+MESES[mes-1].toLowerCase()}
 var avisoT;function aviso(msg,erro){var a=$("#aviso");a.innerHTML=(erro?ic("alerta"):ic("check"))+"<span>"+esc(msg)+"</span>";a.className="on"+(erro?" erro":"");clearTimeout(avisoT);avisoT=setTimeout(function(){a.className=erro?"erro":""},erro?5000:2000)}
+/* ---------- Sem internet: fila no celular ---------- */
+var FILA_ROTAS={lancamento:"lancamentos",despesa:"despesas",vale:"vales"},enviandoFila=false;
+function novoId(){try{if(window.crypto&&crypto.randomUUID)return crypto.randomUUID()}catch(e){}return "c"+Date.now().toString(36)+Math.random().toString(36).slice(2,10)}
+function fila(){try{return JSON.parse(localStorage.getItem("frota-fila")||"[]")}catch(e){return []}}
+function gravarFila(f){try{localStorage.setItem("frota-fila",JSON.stringify(f))}catch(e){}mostrarPendentes()}
+function tirarDaFila(id){gravarFila(fila().filter(function(x){return x.corpo.id!==id}))}
+function mostrarPendentes(){var n=fila().length,b=$("#pendentes");if(!b)return;b.classList.toggle("on",n>0);b.querySelector("span").innerHTML=n+'<span class="so-pc"> aguardando sinal</span>';b.setAttribute("aria-label",n+(n===1?" lançamento aguardando sinal":" lançamentos aguardando sinal"))}
+function mostrarOffline(){$("#offline").classList.toggle("on",!navigator.onLine)}
+// Coloca o que está na fila dentro dos dados mostrados, para os totais já contarem.
+function mesclarFila(d){fila().forEach(function(x){var lista=d[FILA_ROTAS[x.caminho]];if(!lista||String(x.corpo.data||"").slice(0,4)!==String(d.ano))return;
+  var item=Object.assign({},x.corpo,{_pendente:true});if(x.caminho==="lancamento"){item.pernoite=item.pernoite?1:0;["km_inicial","km_final"].forEach(function(k){var v=String(item[k]==null?"":item[k]).replace(/\D/g,"");item[k]=v?Number(v):null});if(item.pernoite&&item.km_final==null)item.km_final=item.km_inicial}
+  if(x.caminho==="despesa"&&item.km!=null){var kv=String(item.km).replace(/\D/g,"");item.km=kv?Number(kv):null}
+  var i=lista.findIndex(function(y){return y.id===item.id});if(i>=0)lista[i]=item;else lista.push(item)});
+  ["lancamentos","despesas","vales"].forEach(function(k){if(d[k])d[k].sort(function(a,b){return a.data<b.data?-1:a.data>b.data?1:0})});return d}
+function enviarFila(){var f=fila();if(enviandoFila||!f.length)return Promise.resolve();enviandoFila=true;var enviados=0;
+  function proximo(){var x=fila()[0];if(!x){enviandoFila=false;if(enviados){aviso(enviados+(enviados===1?" lançamento enviado":" lançamentos enviados"));carregar()}return Promise.resolve()}
+    return fetch("/api/"+x.caminho,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(x.corpo)}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){
+      tirarDaFila(x.corpo.id);if(r.ok)enviados++;else aviso("Não foi enviado ("+(j.error||"erro")+"): "+(x.corpo.regiao||x.corpo.categoria||x.corpo.pessoa||"")+" de "+brData(x.corpo.data),true);return proximo()})},
+      function(){enviandoFila=false;if(enviados)carregar()})}
+  return proximo()}
 function api(metodo,caminho,corpo){return fetch("/api/"+caminho,{method:metodo,headers:corpo?{"content-type":"application/json"}:undefined,body:corpo?JSON.stringify(corpo):undefined})
-  .then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok)throw new Error(j.error||"Não foi possível salvar.");return j})})}
-function carregar(){return api("GET","dados?ano="+st.ano).then(function(d){st.d=d;if(!d.caminhoes.some(function(c){return c.id===st.cam}))st.cam=d.caminhoes.length?d.caminhoes[0].id:null;desenhar()})
+  .then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok)throw new Error(j.error||"Não foi possível salvar.");return j})},
+    function(){// Sem internet: dias, despesas e vales ficam guardados no celular
+      if(metodo==="POST"&&FILA_ROTAS[caminho]&&corpo&&corpo.id){gravarFila(fila().filter(function(x){return x.corpo.id!==corpo.id}).concat([{caminho:caminho,corpo:corpo,quando:Date.now()}]));return {id:corpo.id,pendente:true}}
+      throw new Error("Sem internet. Tente de novo quando tiver sinal.")})}
+function avisoSalvo(r,txt){aviso(r&&r.pendente?"Sem internet: guardado no celular. Envia sozinho quando voltar o sinal.":txt)}
+function carregar(){mostrarPendentes();mostrarOffline();return api("GET","dados?ano="+st.ano).then(function(d){st.d=mesclarFila(d);if(!d.caminhoes.some(function(c){return c.id===st.cam}))st.cam=d.caminhoes.length?d.caminhoes[0].id:null;desenhar()})
   .catch(function(e){$("#tela").innerHTML='<div class="cartao vazio"><b>Não foi possível carregar.</b><br>'+esc(e.message)+'<br><button class="btn" onclick="carregar()">Tentar de novo</button></div>'})}
 
 /* ---------- Janelas: confirmar e perguntar ---------- */
@@ -408,6 +441,7 @@ function telaInicio(){
 
 /* ---------- CAMINHÕES ---------- */
 function itemLista(l,comPlaca){var c=caminhao(l.caminhao_id)||{},dt=dataObj(l.data),sub=[];
+  if(l._pendente)sub.push('<span class="tag amarela">aguardando sinal</span>');
   if(comPlaca)sub.push('<span class="tag">'+esc(c.placa)+"</span>");
   if(l.pernoite)sub.push('<span class="tag laranja">PERNOITE</span>');else if(l.km_inicial!=null&&l.km_final!=null){var r=l.km_final-l.km_inicial;sub.push(km(r)+" km"+(r-c.km_franquia>0?" · +"+km(r-c.km_franquia)+" exced.":""))}
   if(l.nome_motorista||l.nome_ajudante)sub.push('<span style="color:var(--accent);font-weight:600">'+esc([l.nome_motorista,l.nome_ajudante].filter(Boolean).join(", "))+"</span>");
@@ -436,7 +470,7 @@ function blocoQ(c,lista,q){
     return h+'</div><div class="secao-cab" style="border-top:1px solid var(--line2);border-bottom:0"><span class="resumo-linha">'+lista.length+(lista.length===1?" dia":" dias")+'</span><span class="resumo-linha">'+esc(c.nome_motorista)+" <b>"+dinheiro(soma(lista,"motorista"))+"</b> · "+esc(c.nome_ajudante)+" <b>"+dinheiro(soma(lista,"ajudante"))+"</b></span></div>"+outras+"</section>"}
   h+='<div class="rolar"><table><thead><tr><th class="e">Dia</th><th class="e">Região</th><th>KM inicial</th><th>KM final</th><th>Excedente</th><th>Saída</th><th>Diesel</th><th>Frete</th><th>'+esc(c.nome_motorista)+"</th><th>"+esc(c.nome_ajudante)+'</th><th class="e">Obs</th></tr></thead><tbody>';
   lista.forEach(function(l){var dt=dataObj(l.data),ex=l.pernoite?'<span class="tag laranja">PERNOITE</span>':(l.km_inicial!=null&&l.km_final!=null?km(l.km_final-l.km_inicial-c.km_franquia):"");
-    h+='<tr class="clica" data-id="'+esc(l.id)+'"><td class="e"><b>'+dois(dt.getDate())+'</b> <span style="color:var(--muted)">'+SEMANA[dt.getDay()]+'</span></td><td class="e">'+esc(l.regiao)+'</td><td class="num fraco">'+km(l.km_inicial)+'</td><td class="num fraco">'+km(l.km_final)+'</td><td class="num">'+ex+'</td><td class="num">'+dinheiro(l.valor_saida)+'</td><td class="num">'+dinheiro(l.diesel)+'</td><td class="num"><b>'+dinheiro(l.frete)+'</b></td><td class="num">'+dinheiro(l.motorista)+(l.nome_motorista?'<small class="quem">'+esc(l.nome_motorista)+"</small>":"")+'</td><td class="num">'+dinheiro(l.ajudante)+(l.nome_ajudante?'<small class="quem">'+esc(l.nome_ajudante)+"</small>":"")+'</td><td class="e fraco" style="max-width:220px;overflow:hidden;text-overflow:ellipsis">'+esc(l.obs)+"</td></tr>"});
+    h+='<tr class="clica" data-id="'+esc(l.id)+'"><td class="e"><b>'+dois(dt.getDate())+'</b> <span style="color:var(--muted)">'+SEMANA[dt.getDay()]+"</span>"+(l._pendente?' <span class="tag amarela">aguardando sinal</span>':"")+'</td><td class="e">'+esc(l.regiao)+'</td><td class="num fraco">'+km(l.km_inicial)+'</td><td class="num fraco">'+km(l.km_final)+'</td><td class="num">'+ex+'</td><td class="num">'+dinheiro(l.valor_saida)+'</td><td class="num">'+dinheiro(l.diesel)+'</td><td class="num"><b>'+dinheiro(l.frete)+'</b></td><td class="num">'+dinheiro(l.motorista)+(l.nome_motorista?'<small class="quem">'+esc(l.nome_motorista)+"</small>":"")+'</td><td class="num">'+dinheiro(l.ajudante)+(l.nome_ajudante?'<small class="quem">'+esc(l.nome_ajudante)+"</small>":"")+'</td><td class="e fraco" style="max-width:220px;overflow:hidden;text-overflow:ellipsis">'+esc(l.obs)+"</td></tr>"});
   h+='<tr class="total"><td class="e" colspan="2">'+lista.length+(lista.length===1?" dia":" dias")+'</td><td></td><td></td><td></td><td></td><td class="num">'+dinheiro(soma(lista,"diesel"))+'</td><td class="num">'+dinheiro(soma(lista,"frete"))+'</td><td class="num">'+dinheiro(soma(lista,"motorista"))+'</td><td class="num">'+dinheiro(soma(lista,"ajudante"))+"</td><td></td></tr>";
   return h+"</tbody></table></div>"+outras+"</section>";
 }
@@ -459,12 +493,14 @@ function ligarCam(){
 function campo(rot,nome,val,attr,cls){return '<label class="campo '+(cls||"")+'">'+rot+'<input name="'+nome+'" value="'+esc(val==null?"":val)+'" '+(attr||"")+"></label>"}
 function campoRS(rot,nome,val){return '<label class="campo">'+rot+'<div class="dinheiro"><span>R$</span><input name="'+nome+'" inputmode="decimal" autocomplete="off" value="'+esc(dinheiroCampo(val))+'"></div></label>'}
 function janela(html){var j=$("#janela");j.innerHTML=html;j.showModal();return j}
-function rodape(excluir,salvarTxt){return '<div class="j-rodape">'+(excluir?'<button type="button" class="btn perigo" id="excluir">Excluir</button>':"")+'<button type="button" class="btn" id="cancelar">Cancelar</button><button class="btn prim">'+(salvarTxt||"Salvar")+"</button></div>"}
-function formLancamento(l,dia){
-  var c=caminhao(l?l.caminhao_id:st.cam),novo=!l;if(!c)return;
+function rodape(excluir,salvarTxt,extra){return '<div class="j-rodape">'+(excluir?'<button type="button" class="btn perigo" id="excluir">Excluir</button>':"")+(extra||"")+'<button type="button" class="btn so-pc" id="cancelar">Cancelar</button><button class="btn prim">'+(salvarTxt||"Salvar")+"</button></div>"}
+// base: um dia já lançado para copiar (botão "Repetir hoje")
+function formLancamento(l,dia,base){
+  var c=caminhao(l?l.caminhao_id:(base?base.caminhao_id:st.cam)),novo=!l;if(!c)return;
   if(novo){var ult=ultimoDe(c.id),uk=kmAtual(c.id),dd;
     if(hoje.getFullYear()===st.ano&&hoje.getMonth()+1===st.mes&&(!dia||(dia===1?hoje.getDate()<=15:hoje.getDate()>15)))dd=hoje.getDate();else dd=dia||1;
-    l={data:st.ano+"-"+dois(st.mes)+"-"+dois(dd),regiao:"",km_inicial:uk==null?"":uk,km_final:"",pernoite:0,valor_saida:ult?ult.valor_saida:0,diesel:0,frete:ult?ult.valor_saida:0,motorista:c.valor_motorista,ajudante:c.valor_ajudante,nome_motorista:"",nome_ajudante:"",obs:""}}
+    l={data:st.ano+"-"+dois(st.mes)+"-"+dois(dd),regiao:"",km_inicial:uk==null?"":uk,km_final:"",pernoite:0,valor_saida:ult?ult.valor_saida:0,diesel:0,frete:ult?ult.valor_saida:0,motorista:c.valor_motorista,ajudante:c.valor_ajudante,nome_motorista:"",nome_ajudante:"",obs:""};
+    if(base){["regiao","pernoite","valor_saida","frete","motorista","ajudante","nome_motorista","nome_ajudante"].forEach(function(k){l[k]=base[k]});l.data=isoDe(hojeZero())}}
   var docam=st.d.lancamentos.filter(function(x){return x.caminhao_id===c.id});
   var regioes=maisUsados(docam.length?docam:st.d.lancamentos,function(x){return x.regiao},6);
   var saidas=maisUsados(docam,function(x){return x.valor_saida},4);
@@ -482,7 +518,8 @@ function formLancamento(l,dia){
     '<div class="dois">'+campo("Ajudante","nome_ajudante",quemAju(c,l),'list="pessoas" autocomplete="off"')+campoRS("Diária","ajudante",l.ajudante)+'</div><div class="chips"><button type="button" class="chip" id="semAjudante">Sem ajudante hoje</button></div></div>'+
     (p.campos.obs?campo("Observação","obs",l.obs,'autocomplete="off" placeholder="Ex.: toco 3.900"'):escondido("obs",l.obs||""))+
     '<datalist id="regioes">'+maisUsados(st.d.lancamentos,function(x){return x.regiao},40).map(function(r){return '<option value="'+esc(r)+'">'}).join("")+'</datalist><datalist id="pessoas">'+pessoasConhecidas().map(function(n){return '<option value="'+esc(n)+'">'}).join("")+"</datalist>"+
-    "</div>"+rodape(!novo,novo?"Salvar dia":"Salvar")+"</form>");
+    "</div>"+rodape(!novo,novo?"Salvar dia":"Salvar",novo?"":'<button type="button" class="btn" id="repetirDia">'+ic("mais")+"Repetir hoje</button>")+"</form>");
+  if(!novo)$("#repetirDia").onclick=function(){var b=l;j.close();formLancamento(null,0,b)};
   var f=j.querySelector("form");
   function num(v){return Number(String(v).replace(/\D/g,""))}
   function atualiza(){$$("[data-tipo]").forEach(function(b){b.setAttribute("aria-pressed",String((b.dataset.tipo==="pernoite")===pern))});
@@ -499,13 +536,13 @@ function formLancamento(l,dia){
   $("#semAjudante").onclick=function(){f.ajudante.value=""};
   $("#cancelar").onclick=$("#x").onclick=function(){j.close()};
   if(!novo)$("#excluir").onclick=function(){confirmar({titulo:"Excluir este dia?",texto:"O lançamento de "+l.data.slice(8)+"/"+l.data.slice(5,7)+(l.regiao?" ("+l.regiao+")":"")+" será apagado.",ok:"Excluir",perigo:true}).then(function(sim){if(!sim)return;
-    api("DELETE","lancamento?id="+encodeURIComponent(l.id)).then(function(){j.close();aviso("Dia excluído");carregar()}).catch(function(e){aviso(e.message,true)})})};
+    excluirRegistro("lancamento",l,j,"Dia excluído")})};
   f.onsubmit=function(ev){ev.preventDefault();
-    var corpo={id:l.id,caminhao_id:c.id,data:f.data.value,regiao:f.regiao.value,pernoite:pern,km_inicial:f.km_inicial.value,km_final:pern?f.km_inicial.value:f.km_final.value,obs:f.obs.value,nome_motorista:f.nome_motorista.value,nome_ajudante:f.nome_ajudante.value};
+    var corpo={id:l.id||novoId(),caminhao_id:c.id,data:f.data.value,regiao:f.regiao.value,pernoite:pern,km_inicial:f.km_inicial.value,km_final:pern?f.km_inicial.value:f.km_final.value,obs:f.obs.value,nome_motorista:f.nome_motorista.value,nome_ajudante:f.nome_ajudante.value};
     var ok=true;["valor_saida","diesel","frete","motorista","ajudante"].forEach(function(k){var n=lerNumero(f[k].value);if(isNaN(n))ok=false;corpo[k]=n});
     if(!ok){aviso("Confira os valores em dinheiro.",true);return}
     var bt=f.querySelector(".btn.prim");bt.disabled=true;
-    api("POST","lancamento",corpo).then(function(){j.close();aviso(novo?"Dia lançado":"Alterações salvas");st.mes=Number(corpo.data.slice(5,7));st.ano=Number(corpo.data.slice(0,4));carregar()}).catch(function(e){bt.disabled=false;aviso(e.message,true)})};
+    api("POST","lancamento",corpo).then(function(r){j.close();avisoSalvo(r,novo?"Dia lançado":"Alterações salvas");st.mes=Number(corpo.data.slice(5,7));st.ano=Number(corpo.data.slice(0,4));carregar()}).catch(function(e){bt.disabled=false;aviso(e.message,true)})};
 }
 function formCaminhao(c){
   var novo=!c;c=c||{placa:"",nome_motorista:"",nome_ajudante:"",valor_motorista:170,valor_ajudante:100,km_franquia:130};
@@ -541,10 +578,10 @@ function formDespesa(d,dia){
   var f=j.querySelector("form");ligarEscolha(j,"cat",function(v){cat=v});
   $("#cancelar").onclick=$("#x").onclick=function(){j.close()};
   if(!novo)$("#excluir").onclick=function(){confirmar({titulo:"Excluir esta despesa?",texto:d.categoria+" de "+rs(d.valor)+" em "+brData(d.data)+".",ok:"Excluir",perigo:true}).then(function(sim){if(!sim)return;
-    api("DELETE","despesa?id="+encodeURIComponent(d.id)).then(function(){j.close();aviso("Despesa excluída");carregar()}).catch(function(e){aviso(e.message,true)})})};
+    excluirRegistro("despesa",d,j,"Despesa excluída")})};
   f.onsubmit=function(ev){ev.preventDefault();var v=lerNumero(f.valor.value);if(!(v>0)){aviso("Informe o valor.",true);return}
-    api("POST","despesa",{id:d.id,caminhao_id:f.caminhao_id.value,data:f.data.value,categoria:cat||"Outros",valor:v,km:f.km.value,obs:f.obs.value})
-      .then(function(){j.close();aviso(novo?"Despesa lançada":"Despesa salva");st.mes=Number(f.data.value.slice(5,7));st.cam=f.caminhao_id.value;carregar()}).catch(function(e){aviso(e.message,true)})};
+    api("POST","despesa",{id:d.id||novoId(),caminhao_id:f.caminhao_id.value,data:f.data.value,categoria:cat||"Outros",valor:v,km:f.km.value,obs:f.obs.value})
+      .then(function(r){j.close();avisoSalvo(r,novo?"Despesa lançada":"Despesa salva");st.mes=Number(f.data.value.slice(5,7));st.cam=f.caminhao_id.value;carregar()}).catch(function(e){aviso(e.message,true)})};
 }
 
 function formVale(v){
@@ -558,10 +595,27 @@ function formVale(v){
   var f=j.querySelector("form");$$("[data-pessoa]").forEach(function(b){b.onclick=function(){f.pessoa.value=b.dataset.pessoa}});
   $("#cancelar").onclick=$("#x").onclick=function(){j.close()};
   if(!novo)$("#excluir").onclick=function(){confirmar({titulo:"Excluir este vale?",texto:rs(v.valor)+" para "+v.pessoa+" em "+brData(v.data)+".",ok:"Excluir",perigo:true}).then(function(sim){if(!sim)return;
-    api("DELETE","vale?id="+encodeURIComponent(v.id)).then(function(){j.close();aviso("Vale excluído");carregar()}).catch(function(e){aviso(e.message,true)})})};
+    excluirRegistro("vale",v,j,"Vale excluído")})};
   f.onsubmit=function(ev){ev.preventDefault();var n=lerNumero(f.valor.value);if(!(n>0)){aviso("Informe o valor.",true);return}
-    api("POST","vale",{id:v.id,pessoa:f.pessoa.value,data:f.data.value,valor:n,obs:f.obs.value}).then(function(){j.close();aviso(novo?"Vale lançado":"Vale salvo");carregar()}).catch(function(e){aviso(e.message,true)})};
+    api("POST","vale",{id:v.id||novoId(),pessoa:f.pessoa.value,data:f.data.value,valor:n,obs:f.obs.value}).then(function(r){j.close();avisoSalvo(r,novo?"Vale lançado":"Vale salvo");carregar()}).catch(function(e){aviso(e.message,true)})};
 }
+// Abre o "Compartilhar" do celular (WhatsApp etc.); no computador, copia o texto.
+function compartilharTexto(t){if(navigator.share){navigator.share({text:t}).catch(function(){});return}
+  if(navigator.clipboard)navigator.clipboard.writeText(t).then(function(){aviso("Texto copiado. Cole no WhatsApp.")},function(){aviso("Não foi possível copiar.",true)});else aviso("Não foi possível copiar.",true)}
+function baixarArquivo(nome,conteudo,tipo){var a=document.createElement("a");a.href=URL.createObjectURL(new Blob([conteudo],{type:tipo}));a.download=nome;document.body.appendChild(a);a.click();a.remove()}
+// CSV no padrão brasileiro (ponto e vírgula, vírgula decimal) para abrir direto no Excel
+function csv(linhas){return "﻿"+linhas.map(function(l){return l.map(function(v){v=v==null?"":String(v);return /[;"\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}).join(";")}).join("\r\n")}
+function nCsv(v){return Number(v||0).toFixed(2).replace(".",",")}
+function baixarPlanilhaDias(){var cab=["Data","Caminhão","Região","KM inicial","KM final","KM rodado","Pernoite","Valor saída","Diesel","Frete","Motorista","Diária motorista","Ajudante","Diária ajudante","Obs"],l=[cab];
+  st.d.lancamentos.forEach(function(x){var c=caminhao(x.caminhao_id)||{};l.push([brData(x.data),c.placa,x.regiao,x.km_inicial,x.km_final,x.km_inicial!=null&&x.km_final!=null?x.km_final-x.km_inicial:"",x.pernoite?"sim":"",nCsv(x.valor_saida),nCsv(x.diesel),nCsv(x.frete),quemMot(c,x),nCsv(x.motorista),quemAju(c,x),nCsv(x.ajudante),x.obs])});
+  baixarArquivo("frota-dias-"+st.ano+".csv",csv(l),"text/csv;charset=utf-8");aviso("Planilha baixada")}
+function baixarPlanilhaGastos(){var l=[["Tipo","Data","Caminhão / pessoa","Categoria","Valor","KM","Descrição"]];
+  (st.d.despesas||[]).forEach(function(x){var c=caminhao(x.caminhao_id)||{};l.push(["Despesa",brData(x.data),c.placa,x.categoria,nCsv(x.valor),x.km,x.obs])});
+  (st.d.vales||[]).forEach(function(x){l.push(["Vale",brData(x.data),x.pessoa,"",nCsv(x.valor),"",x.obs])});
+  baixarArquivo("frota-despesas-e-vales-"+st.ano+".csv",csv(l),"text/csv;charset=utf-8");aviso("Planilha baixada")}
+// Exclui no servidor; se ainda estava só no celular (sem sinal), tira da fila.
+function excluirRegistro(rota,item,j,txt){if(item._pendente){tirarDaFila(item.id);j.close();aviso(txt);carregar();return}
+  api("DELETE",rota+"?id="+encodeURIComponent(item.id)).then(function(){tirarDaFila(item.id);j.close();aviso(txt);carregar()}).catch(function(e){aviso(e.message,true)})}
 
 var SUGEST_KM=["Troca de óleo","Filtros","Revisão","Rodízio de pneus","Correia","Freios"],SUGEST_DATA=["Licenciamento (CRLV)","Seguro","IPVA","ANTT / RNTRC","Aferição do tacógrafo","CNH do motorista","Exame toxicológico"];
 function formLembrete(l){
@@ -624,7 +678,7 @@ function fechamento(mes,q){
     dados.itens.forEach(function(it,i){if(i===0)h+='<div class="grupo-campos"><h4>Entrada</h4>';if(i===1)h+='</div><div class="grupo-campos"><h4>Pagamentos</h4>';
       h+='<div class="fecha-item" data-i="'+i+'"><input type="checkbox" aria-label="Lançar '+esc(it.nome)+'"><div><b>'+esc(it.nome)+"</b><small>"+esc(it.detalhe)+'</small></div><div class="dinheiro"><span>R$</span><input class="entrada val" inputmode="decimal" value="'+dinheiroCampo(it.valor)+'" aria-label="Valor"></div><select aria-label="Linha do financeiro">'+opcoes(it)+'</select><div class="estado"></div></div>'});
     h+="</div>"}
-  h+='</div><div class="j-rodape"><button type="button" class="btn" id="cancelar">Cancelar</button><button class="btn prim"'+(dados.dias?"":" disabled")+">Lançar no financeiro</button></div></form>";
+  h+='</div><div class="j-rodape"><button type="button" class="btn" id="compartilhar"'+(dados.dias?"":" disabled")+">"+ic("subir")+'Compartilhar</button><button type="button" class="btn so-pc" id="cancelar">Cancelar</button><button class="btn prim"'+(dados.dias?"":" disabled")+">Lançar no financeiro</button></div></form>";
   var j=janela(h),f=j.querySelector("form");
   f.mes.onchange=f.q.onchange=function(){fechamento(Number(f.mes.value),Number(f.q.value))};
   function confere(div,primeira){var it=dados.itens[Number(div.dataset.i)],sel=div.querySelector("select"),cx=div.querySelector("input[type=checkbox]"),est=div.querySelector(".estado");
@@ -635,6 +689,12 @@ function fechamento(mes,q){
     if(primeira)cx.checked=novo>0&&(!sel.value||!atual);div.classList.toggle("marcado",cx.checked)}
   $$("#janela .fecha-item").forEach(function(div){confere(div,true);div.querySelector("select").onchange=function(){confere(div)};div.querySelector(".val").oninput=function(){confere(div)};div.querySelector("input[type=checkbox]").onchange=function(){confere(div)}});
   $("#cancelar").onclick=$("#x").onclick=function(){j.close()};
+  $("#compartilhar").onclick=function(){var linhas=["*Fechamento da "+nomeQ(mes,q)+" de "+st.ano+"*",""];
+    $$("#janela .fecha-item").forEach(function(div){var it=dados.itens[Number(div.dataset.i)],v=lerNumero(div.querySelector(".val").value);
+      if(it.tipo==="Receita"){linhas.push("Frete: *"+rs(v)+"*"+(it.detalhe?" ("+it.detalhe+")":""));linhas.push("");linhas.push("*Pagamentos*")}
+      else linhas.push(it.nome+": "+it.detalhe+" = *"+rs(v)+"*")});
+    var pag=dados.itens.filter(function(x){return x.tipo==="Pagamento"}).reduce(function(s,x){return s+x.valor},0);linhas.push("");linhas.push("Total a pagar: *"+rs(pag)+"*");
+    compartilharTexto(linhas.join("\n"))};
   f.onsubmit=function(ev){ev.preventDefault();var itens=[],erro=false;
     $$("#janela .fecha-item").forEach(function(div){if(!div.querySelector("input[type=checkbox]").checked)return;var it=dados.itens[Number(div.dataset.i)],v=lerNumero(div.querySelector(".val").value),sel=div.querySelector("select");
       if(isNaN(v)){erro=true;return}itens.push(sel.value?{linha_id:sel.value,valor:v}:{nova_linha:it.nova,grupo:it.grupo,valor:v});
@@ -786,7 +846,9 @@ function telaAjustes(){
   h+="</div>";
   // Dados
   h+='<div class="cartao secao"><div class="secao-cab"><h2>Seus dados</h2></div><div style="padding:16px;display:grid;gap:12px"><p class="nota">'+(p.ultimoBackup?"Último backup em "+brData(p.ultimoBackup)+". ":"Nenhum backup feito ainda. ")+"Baixe um backup toda semana e guarde no computador ou no Google Drive. O mesmo arquivo serve para importar de volta.</p>"+
-    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn prim" id="baixarBackup">'+ic("baixar")+'Baixar backup</button><label class="btn" tabindex="0">'+ic("subir")+'Importar arquivo<input type="file" id="arquivoImportar" accept=".json,application/json" hidden></label></div></div></div>';
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn prim" id="baixarBackup">'+ic("baixar")+'Baixar backup</button><label class="btn" tabindex="0">'+ic("subir")+'Importar arquivo<input type="file" id="arquivoImportar" accept=".json,application/json" hidden></label></div>'+
+    '<p class="nota" style="margin-top:6px">Planilhas de '+st.ano+" para abrir no Excel:</p>"+'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="csvDias">'+ic("baixar")+'Dias de trabalho</button><button class="btn" id="csvGastos">'+ic("baixar")+"Despesas e vales</button></div></div></div>";
+  h+='<div class="cartao secao"><div class="secao-cab"><h2>Usar como aplicativo</h2></div><div style="padding:16px"><p class="nota">No celular, abra o menu do navegador e toque em <b>Adicionar à tela inicial</b> (ou <b>Instalar app</b>). O sistema ganha um ícone, abre em tela cheia e funciona mesmo sem sinal: os lançamentos ficam guardados e são enviados quando a internet voltar.</p></div></div>';
   h+="</div>";
   $("#tela").innerHTML=h;
   $("#cfgNovoCam").onclick=function(){formCaminhao(null)};
@@ -802,7 +864,7 @@ function telaAjustes(){
   $("#cfgAddCat").onclick=function(){perguntar({titulo:"Nova categoria",rotulo:"Nome",ok:"Adicionar"}).then(function(v){if(!v)return;if(p.categorias.some(function(c){return normal(c)===normal(v)})){aviso("Essa categoria já existe.",true);return}
     salvarPrefs(function(x){x.categorias=x.categorias.concat([v])}).then(function(){aviso("Categoria adicionada");telaAjustes()}).catch(function(e){aviso(e.message,true)})})};
   ["km","saida","diesel","obs"].forEach(function(k){$("#cfgCampo_"+k).onchange=function(ev){var on=ev.target.checked;salvarPrefs(function(x){x.campos[k]=on}).then(function(){aviso(on?"Campo ligado":"Campo escondido")}).catch(function(e){ev.target.checked=!on;aviso(e.message,true)})}});
-  $("#baixarBackup").onclick=baixarBackup;
+  $("#baixarBackup").onclick=baixarBackup;$("#csvDias").onclick=baixarPlanilhaDias;$("#csvGastos").onclick=baixarPlanilhaGastos;
   $("#arquivoImportar").onchange=function(ev){var arq=ev.target.files[0];ev.target.value="";if(!arq)return;
     arq.text().then(function(t){var dd;try{dd=JSON.parse(t)}catch(e){throw new Error("Arquivo inválido.")}if(dd.formato!=="frota-simples")throw new Error("Este arquivo não é um backup do sistema.");
       var nl=(dd.lancamentos||[]).length,nf=(dd.linhas||[]).length,nd=(dd.despesas||[]).length,nv=(dd.vales||[]).length;
@@ -814,8 +876,12 @@ function telaAjustes(){
 montarNav();
 $("#anoMenos").onclick=function(){st.ano--;carregar()};$("#anoMais").onclick=function(){st.ano++;carregar()};
 $("#fab").onclick=function(){menuLancar(null)};
+$("#pendentes").onclick=function(){if(!navigator.onLine){aviso("Ainda sem internet. Os lançamentos continuam guardados no celular.",true);return}enviarFila()};
+window.addEventListener("online",function(){mostrarOffline();enviarFila()});window.addEventListener("offline",mostrarOffline);
+setInterval(function(){if(navigator.onLine&&fila().length)enviarFila()},30000);
+if("serviceWorker" in navigator&&location.protocol!=="file:")navigator.serviceWorker.register("/sw.js").catch(function(){});
 var largura=pc(),larguraTela=window.innerWidth,redesenhoT;
 window.addEventListener("resize",function(){if(pc()!==largura){largura=pc();larguraTela=window.innerWidth;desenhar();return}
   clearTimeout(redesenhoT);redesenhoT=setTimeout(function(){if(st.aba==="resumo"&&Math.abs(window.innerWidth-larguraTela)>40&&!$("#janela").open){larguraTela=window.innerWidth;var y=window.scrollY;desenhar();window.scrollTo(0,y)}},200)});
-carregar();
+carregar().then(function(){if(navigator.onLine)enviarFila()});
 </script></body></html>`;

@@ -185,5 +185,23 @@ assert.equal(r.despesas.length, 1, "importar backup não duplica despesas");
 assert.equal(r.lembretes.length, 2, "nem lembretes");
 assert.equal((await call("DELETE", `despesa?id=${despId}`)).status, 200);
 
+// Código gerado no celular: reenviar o mesmo lançamento (sinal caiu) não duplica
+const idCel = "cel-1234-abcd";
+for (let i = 0; i < 2; i++) {
+  r = await call("POST", "lancamento", { id: idCel, caminhao_id: "cam2", data: "2026-07-01", regiao: "BUZIOS", frete: 900 });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.id, idCel);
+}
+r = (await call("GET", "dados?ano=2026")).data;
+assert.equal(r.lancamentos.filter((l) => l.id === idCel).length, 1);
+await call("DELETE", `lancamento?id=${idCel}`);
+
+// Arquivos do aplicativo instalável
+for (const [caminho, tipo] of [["/icone.svg", "image/svg+xml"], ["/manifest.webmanifest", "application/manifest+json"], ["/sw.js", "text/javascript"]]) {
+  const resp = await app.fetch(new Request(`https://teste.local${caminho}`), { DB });
+  assert.equal(resp.status, 200);
+  assert.ok(resp.headers.get("content-type").startsWith(tipo), caminho);
+}
+
 assert.equal((await call("GET", "nada")).status, 404);
 console.log("Teste OK: caminhões, lançamentos, financeiro e validações.");

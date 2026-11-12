@@ -115,17 +115,28 @@ async function caminhaoExiste(db, id) {
   if (!r.length) throw new Error("Caminhão não encontrado.");
 }
 
+// O celular pode mandar o código do registro novo (para reenviar sem duplicar quando volta a internet).
+const TABELAS_ID = new Set(["cam_lancamentos", "cam_despesas", "cam_vales"]);
+async function jaExiste(db, tabela, id) {
+  if (!TABELAS_ID.has(tabela) || !id) return false;
+  return (await todos(db, `SELECT id FROM ${tabela} WHERE id=?`, String(id))).length > 0;
+}
+function idNovo(p) {
+  const v = String(p.id || "");
+  return /^[A-Za-z0-9-]{8,80}$/.test(v) ? v : crypto.randomUUID();
+}
+
 async function salvarDespesa(db, p) {
   const caminhaoId = texto(p, "caminhao_id", true, "caminhão");
   await caminhaoExiste(db, caminhaoId);
   const valor = numero(p, "valor", "valor");
   if (valor <= 0) throw new Error("Informe o valor da despesa.");
   const campos = [caminhaoId, dataValida(p, "data"), texto(p, "categoria") || "Outros", valor, kmOpcional(p, "km"), texto(p, "obs")];
-  if (p.id) {
+  if (await jaExiste(db, "cam_despesas", p.id)) {
     await executar(db, "UPDATE cam_despesas SET caminhao_id=?,data=?,categoria=?,valor=?,km=?,obs=? WHERE id=?", ...campos, String(p.id));
     return { id: p.id };
   }
-  const id = crypto.randomUUID();
+  const id = idNovo(p);
   await executar(db, "INSERT INTO cam_despesas (caminhao_id,data,categoria,valor,km,obs,id) VALUES (?,?,?,?,?,?,?)", ...campos, id);
   return { id };
 }
@@ -134,11 +145,11 @@ async function salvarVale(db, p) {
   const valor = numero(p, "valor", "valor");
   if (valor <= 0) throw new Error("Informe o valor do vale.");
   const campos = [texto(p, "pessoa", true, "pessoa"), dataValida(p, "data"), valor, texto(p, "obs")];
-  if (p.id) {
+  if (await jaExiste(db, "cam_vales", p.id)) {
     await executar(db, "UPDATE cam_vales SET pessoa=?,data=?,valor=?,obs=? WHERE id=?", ...campos, String(p.id));
     return { id: p.id };
   }
-  const id = crypto.randomUUID();
+  const id = idNovo(p);
   await executar(db, "INSERT INTO cam_vales (pessoa,data,valor,obs,id) VALUES (?,?,?,?,?)", ...campos, id);
   return { id };
 }
@@ -249,13 +260,13 @@ async function salvarLancamento(db, p) {
     numero(p, "valor_saida", "valor saída"), numero(p, "diesel"), numero(p, "frete", "valor frete"),
     numero(p, "motorista"), numero(p, "ajudante"), texto(p, "obs"), nomeMot, nomeAju,
   ];
-  if (p.id) {
+  if (await jaExiste(db, "cam_lancamentos", p.id)) {
     await executar(db,
       "UPDATE cam_lancamentos SET caminhao_id=?,data=?,regiao=?,km_inicial=?,km_final=?,pernoite=?,valor_saida=?,diesel=?,frete=?,motorista=?,ajudante=?,obs=?,nome_motorista=?,nome_ajudante=? WHERE id=?",
       ...l, String(p.id));
     return { id: p.id };
   }
-  const id = crypto.randomUUID();
+  const id = idNovo(p);
   await executar(db,
     "INSERT INTO cam_lancamentos (caminhao_id,data,regiao,km_inicial,km_final,pernoite,valor_saida,diesel,frete,motorista,ajudante,obs,nome_motorista,nome_ajudante,id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     ...l, id);
@@ -537,10 +548,49 @@ async function api(request, env, url) {
   }
 }
 
+// ---------- Aplicativo instalável e uso sem internet ----------
+
+const ICONE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#ee7a2c"/><g fill="none" stroke="#fff" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"><path d="M96 160h196v176H96zM292 216h72l56 64v56H292"/><circle cx="168" cy="352" r="34" fill="#ee7a2c"/><circle cx="364" cy="352" r="34" fill="#ee7a2c"/></g></svg>`;
+
+const MANIFESTO = JSON.stringify({
+  name: "Frota",
+  short_name: "Frota",
+  description: "Caminhões, quinzenas e financeiro",
+  lang: "pt-BR",
+  start_url: "/",
+  scope: "/",
+  display: "standalone",
+  background_color: "#f2f5f7",
+  theme_color: "#0f3d5c",
+  icons: [{ src: "/icone.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" }],
+});
+
+// Página e últimos dados ficam guardados no aparelho: abre mesmo sem sinal.
+const SERVICE_WORKER = `
+const CACHE = "frota-v1";
+const GUARDAR = ["/", "/icone.svg", "/manifest.webmanifest"];
+self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(GUARDAR)).catch(() => {})); self.skipWaiting(); });
+self.addEventListener("activate", (e) => { e.waitUntil(self.clients.claim()); });
+self.addEventListener("fetch", (e) => {
+  const u = new URL(e.request.url);
+  if (e.request.method !== "GET" || u.origin !== location.origin) return;
+  if (!(GUARDAR.includes(u.pathname) || u.pathname === "/api/dados")) return;
+  e.respondWith(
+    fetch(e.request).then((r) => {
+      if (r.ok) { const copia = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copia)); }
+      return r;
+    }).catch(() => caches.match(e.request).then((r) => r || new Response(JSON.stringify({ error: "Sem internet e sem dados guardados." }), { status: 503, headers: { "content-type": "application/json" } })))
+  );
+});
+`;
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/")) return api(request, env, url);
+    if (url.pathname === "/icone.svg") return new Response(ICONE, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" } });
+    if (url.pathname === "/manifest.webmanifest") return new Response(MANIFESTO, { headers: { "content-type": "application/manifest+json" } });
+    if (url.pathname === "/sw.js") return new Response(SERVICE_WORKER, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" } });
     return new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
   },
 };

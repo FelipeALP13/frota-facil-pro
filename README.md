@@ -29,6 +29,14 @@ No celular o menu fica embaixo; no computador, em cima. Segue o tema claro/escur
   - **Baixar backup**: baixa um arquivo `.json` com tudo. Guarde de vez em quando.
   - **Importar arquivo**: carrega um backup ou o arquivo de importação das planilhas. Importar o mesmo arquivo de novo não duplica nada: lançamentos com o mesmo código são substituídos e as linhas do financeiro são achadas pelo nome.
 
+## Na estrada
+
+- **Funciona sem internet.** A página e os últimos dados ficam guardados no celular. Dias, despesas e vales lançados sem sinal ficam numa fila no aparelho (aparece "☁ 1" no topo) e são enviados sozinhos quando a internet volta. Reenviar não duplica.
+- **Instala como aplicativo:** no celular, menu do navegador → "Adicionar à tela inicial".
+- **Compartilhar fechamento:** na janela de fechar quinzena, o botão "Compartilhar" monta o texto do acerto (frete, diárias de cada um menos os vales, total a pagar) para mandar no WhatsApp.
+- **Repetir hoje:** ao abrir um dia já lançado, copia região, valores e equipe para hoje, com o KM atualizado.
+- **Planilhas para o Excel:** em Ajustes → Seus dados, baixa os dias de trabalho e as despesas/vales do ano em CSV.
+
 ## Arquitetura
 
 - Worker JavaScript em `worker/index.js` (API) e `worker/ui.js` (tela, sem dependências).
